@@ -60,12 +60,21 @@ export default defineConfig({
             try {
               let quotes = [];
               if (range === '1d' || range === '1w') {
-                // Use chart for intraday / short term (supports 'range')
-                const chartData = await yf.chart(`${symbol}.CA`, {
-                  range: range === '1d' ? '1d' : '5d',
-                  interval: range === '1d' ? '2m' : '15m'
-                });
-                quotes = chartData.quotes.map((q: any) => ({ date: q.date, close: q.close || q.adjclose }));
+                try {
+                  // Use chart for intraday / short term (supports 'range')
+                  const chartData = await yf.chart(`${symbol}.CA`, {
+                    range: range === '1d' ? '1d' : '5d',
+                    interval: range === '1d' ? '2m' : '15m'
+                  });
+                  quotes = chartData.quotes.map((q: any) => ({ date: q.date, close: q.close || q.adjclose }));
+                } catch (chartErr) {
+                  console.warn(`[Proxy] Chart failed for ${symbol}, falling back to historical:`, chartErr.message);
+                  // Fallback to historical if chart fails
+                  const period1 = new Date();
+                  period1.setDate(period1.getDate() - (range === '1d' ? 1 : 7));
+                  const histData = await yf.historical(`${symbol}.CA`, { period1, period2: new Date(), interval: '1d' });
+                  quotes = histData.map((q: any) => ({ date: q.date, close: q.close || q.adjclose }));
+                }
               } else {
                 // Use historical for daily data (requires explicit dates)
                 const now = new Date();
@@ -82,7 +91,7 @@ export default defineConfig({
                 const histData = await yf.historical(`${symbol}.CA`, {
                   period1,
                   period2: now,
-                  interval: (range === '5y' || range === 'max') ? '1wk' : '1d'
+                  interval: (range === '5y' || range === 'max') ? '1mo' : '1d'
                 });
                 quotes = histData.map((q: any) => ({ date: q.date, close: q.close || q.adjclose }));
               }
