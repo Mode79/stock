@@ -598,9 +598,10 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
           recommendation = 'CORE HOLD';
           strategy = `Market is in price-discovery mode. ${stock.ticker} is trading in a range between ${support.toFixed(2)} and ${resistance.toFixed(2)}. Strategy: Maintain core position. Do not add until a breakout above ${resistance.toFixed(2)} occurs.`;
         }
+        const trend = currentPrice > sma50 ? 'Bullish' : 'Bearish';
 
         setAnalysis({ 
-          rsi, sma50, resistance, support, 
+          rsi, sma50, resistance, support, trend,
           sentiment, recommendation, strategy, 
           upside: ((targetPrice - currentPrice) / currentPrice) * 100,
           targetPrice
