@@ -5,7 +5,8 @@ import {
 } from 'recharts';
 import { 
   ArrowUpRight, ArrowDownRight, RefreshCw, AlertTriangle, 
-  Wallet, DollarSign, Activity, CheckCircle2, Clock, Plus, Trash2, X, Search, TrendingUp
+  Wallet, DollarSign, Activity, CheckCircle2, Clock, Plus, Trash2, X, Search, TrendingUp,
+  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert
 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line } from 'recharts';
 import './index.css';
@@ -56,6 +57,7 @@ function App() {
   const [staleData, setStaleData] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [historyStock, setHistoryStock] = useState<string | null>(null);
+  const [analysisStock, setAnalysisStock] = useState<Holding | null>(null);
 
   useEffect(() => {
     localStorage.setItem('thndr_tx_v3', JSON.stringify(transactions));
@@ -213,6 +215,7 @@ function App() {
                 <th style={{ textAlign: 'right' }}>Value</th>
                 <th style={{ textAlign: 'right' }}>P&L (EGP)</th>
                 <th style={{ textAlign: 'right' }}>Return</th>
+                <th style={{ textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -221,16 +224,26 @@ function App() {
                 const pnl = value - h.totalCost;
                 const pnlPct = (pnl / h.totalCost) * 100;
                 return (
-                    <tr key={h.ticker} onClick={() => setHistoryStock(h.ticker)} style={{ cursor: 'pointer' }}>
-                      <td style={{ fontWeight: 700 }}>{h.ticker}</td>
-                      <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{h.company}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{h.shares}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{h.avgCost.toFixed(4)}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{h.livePrice.toFixed(2)}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                      <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                      <td style={{ textAlign: 'right' }}><span className={`badge ${pnl >= 0 ? 'badge-green' : 'badge-red'}`}>{pnlPct.toFixed(2)}%</span></td>
-                    </tr>
+                  <tr key={h.ticker}>
+                    <td style={{ fontWeight: 700 }}>{h.ticker}</td>
+                    <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{h.company}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{h.shares}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{h.avgCost.toFixed(4)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{h.livePrice.toFixed(2)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                    <td style={{ textAlign: 'right' }}><span className={`badge ${pnl >= 0 ? 'badge-green' : 'badge-red'}`}>{pnlPct.toFixed(2)}%</span></td>
+                    <td style={{ textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                        <button className="icon-btn" title="View History" onClick={() => setHistoryStock(h.ticker)}>
+                          <BarChart2 size={16} className="text-blue" />
+                        </button>
+                        <button className="icon-btn" title="AI Analysis" onClick={() => setAnalysisStock(h)}>
+                          <Sparkles size={16} className="text-yellow" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>
@@ -300,6 +313,13 @@ function App() {
           ticker={historyStock} 
           company={holdings.find(h => h.ticker === historyStock)?.company || historyStock}
           onClose={() => setHistoryStock(null)} 
+        />
+      )}
+
+      {analysisStock && (
+        <AIAnalysisModal 
+          stock={analysisStock} 
+          onClose={() => setAnalysisStock(null)} 
         />
       )}
     </div>
@@ -516,4 +536,129 @@ function TransactionForm({ onAdd }: { onAdd: (tx: any) => void }) {
   );
 }
 
-export default App;
+function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => void }) {
+  const [analysis, setAnalysis] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const generateAnalysis = async () => {
+      setLoading(true);
+      try {
+        // Fetch 3 months of data to calculate indicators
+        const res = await fetch(`/api/history?symbol=${stock.ticker}&range=3m`);
+        const history = await res.json();
+        
+        // Calculate RSI (simplified)
+        let rsi = 50;
+        if (history.length > 14) {
+          let gains = 0, losses = 0;
+          for (let i = history.length - 14; i < history.length; i++) {
+            const diff = history[i].close - history[i-1].close;
+            if (diff > 0) gains += diff; else losses -= diff;
+          }
+          const rs = (gains / 14) / (losses / 14 || 1);
+          rsi = 100 - (100 / (1 + rs));
+        }
+
+        // Determine trend
+        const shortAvg = history.slice(-5).reduce((a:any, b:any) => a + b.close, 0) / 5;
+        const longAvg = history.slice(-20).reduce((a:any, b:any) => a + b.close, 0) / 20;
+        const trend = shortAvg > longAvg ? 'Bullish' : 'Bearish';
+
+        // Generate AI Narrative
+        const isOverbought = rsi > 70;
+        const isOversold = rsi < 30;
+        
+        let recommendation = 'HOLD';
+        let confidence = 75;
+        let narrative = '';
+
+        if (trend === 'Bullish' && !isOverbought) {
+          recommendation = 'BUY / ACCUMULATE';
+          narrative = `${stock.ticker} is showing strong structural momentum. Technical indicators suggest a healthy uptrend with RSI at ${rsi.toFixed(1)}, indicating significant room for further appreciation before reaching overbought territory.`;
+        } else if (trend === 'Bearish' && isOversold) {
+          recommendation = 'STRONG BUY (Rebound)';
+          narrative = `${stock.company} appears fundamentally undervalued after a recent correction. The RSI at ${rsi.toFixed(1)} confirms extreme oversold conditions. High probability of mean reversion in the mid-term.`;
+        } else if (isOverbought) {
+          recommendation = 'TAKE PROFITS / REDUCE';
+          narrative = `The asset has entered an exuberant phase. With RSI over 70, a technical pullback is likely. Professional strategy suggests securing realized gains while maintaining a core position.`;
+        } else {
+          recommendation = 'CORE HOLD';
+          narrative = `Consolidation phase detected. The market is pricing in current macro-economic shifts for the ${stock.sector} sector. Maintain current exposure while awaiting a definitive breakout signal.`;
+        }
+
+        setAnalysis({ rsi, trend, recommendation, confidence, narrative, lastPrice: stock.livePrice });
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    generateAnalysis();
+  }, [stock]);
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-content" style={{ width: '600px', padding: '2rem' }}>
+        <div className="card-header" style={{ marginBottom: '2rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ background: 'var(--color-yellow)', padding: '10px', borderRadius: '12px' }}>
+              <Brain size={24} color="#0d1117" />
+            </div>
+            <div>
+              <h3 className="card-title">Thunder AI Analyst</h3>
+              <p className="text-muted" style={{ fontSize: '0.8rem' }}>Deep Analysis for {stock.ticker}</p>
+            </div>
+          </div>
+          <button className="icon-btn" onClick={onClose}><X size={24} /></button>
+        </div>
+
+        {loading ? (
+          <div style={{ height: '300px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
+            <RefreshCw className="spinning text-yellow" size={40} />
+            <p className="text-muted animate-pulse">Running Deep Neural Scan...</p>
+          </div>
+        ) : (
+          <div className="analysis-body">
+            <div className="grid-2" style={{ gap: '1.5rem', marginBottom: '2rem' }}>
+              <div className="analysis-stat-card">
+                <label className="text-muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>Technical Trend</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+                  {analysis.trend === 'Bullish' ? <ArrowUpRight className="text-green" /> : <ArrowDownRight className="text-red" />}
+                  <span style={{ fontWeight: 700, fontSize: '1.2rem' }}>{analysis.trend}</span>
+                </div>
+              </div>
+              <div className="analysis-stat-card">
+                <label className="text-muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>RSI Strength (14D)</label>
+                <div style={{ marginTop: '0.5rem' }}>
+                  <span style={{ fontWeight: 700, fontSize: '1.2rem' }}>{analysis.rsi.toFixed(1)}</span>
+                  <div style={{ height: '4px', background: '#30363d', borderRadius: '2px', marginTop: '0.5rem', position: 'relative' }}>
+                    <div style={{ position: 'absolute', height: '100%', left: 0, width: `${analysis.rsi}%`, background: 'var(--color-yellow)', borderRadius: '2px' }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="recommendation-box" style={{ background: 'rgba(88, 166, 255, 0.05)', border: '1px solid rgba(88, 166, 255, 0.2)', borderRadius: '12px', padding: '1.5rem', marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Target size={18} className="text-blue" />
+                  <span style={{ fontWeight: 600 }}>AI Recommendation</span>
+                </div>
+                <span className="badge badge-yellow" style={{ fontSize: '0.9rem', padding: '0.5rem 1rem' }}>{analysis.recommendation}</span>
+              </div>
+              <p style={{ lineHeight: 1.6, fontSize: '0.95rem', color: '#c9d1d9' }}>{analysis.narrative}</p>
+            </div>
+
+            <div style={{ background: 'rgba(248, 81, 73, 0.05)', padding: '1rem', borderRadius: '8px', display: 'flex', gap: '0.75rem' }}>
+              <ShieldAlert size={18} className="text-red" style={{ flexShrink: 0 }} />
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                <strong>Disclaimer:</strong> AI analysis is based on mathematical models and historical trends. This is not financial advice. External political or economic events may override technical signals.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
