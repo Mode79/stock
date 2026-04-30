@@ -58,24 +58,31 @@ export default defineConfig({
             const range = queryUrl.searchParams.get('range') || '1m';
 
             try {
-              const intervalMap: Record<string, any> = {
-                '1d': '5m', '1w': '15m', '1m': '1d', '3m': '1d', '6m': '1d', 'ytd': '1d', '1y': '1d', '5y': '1wk', 'max': '1mo'
-              };
-              const periodMap: Record<string, any> = {
-                '1d': '1d', '1w': '5d', '1m': '1mo', '3m': '3mo', '6m': '6mo', 'ytd': 'ytd', '1y': '1y', '5y': '5y', 'max': 'max'
-              };
-
               let quotes = [];
               if (range === '1d' || range === '1w') {
+                // Use chart for intraday / short term (supports 'range')
                 const chartData = await yf.chart(`${symbol}.CA`, {
-                  range: periodMap[range],
-                  interval: intervalMap[range]
+                  range: range === '1d' ? '1d' : '5d',
+                  interval: range === '1d' ? '2m' : '15m'
                 });
                 quotes = chartData.quotes.map((q: any) => ({ date: q.date, close: q.close || q.adjclose }));
               } else {
+                // Use historical for daily data (requires explicit dates)
+                const now = new Date();
+                let period1 = new Date();
+                
+                if (range === '1m') period1.setMonth(now.getMonth() - 1);
+                else if (range === '3m') period1.setMonth(now.getMonth() - 3);
+                else if (range === '6m') period1.setMonth(now.getMonth() - 6);
+                else if (range === 'ytd') period1 = new Date(now.getFullYear(), 0, 1);
+                else if (range === '1y') period1.setFullYear(now.getFullYear() - 1);
+                else if (range === '5y') period1.setFullYear(now.getFullYear() - 5);
+                else period1 = new Date(1970, 0, 1); // max
+
                 const histData = await yf.historical(`${symbol}.CA`, {
-                  range: periodMap[range],
-                  interval: intervalMap[range]
+                  period1,
+                  period2: now,
+                  interval: (range === '5y' || range === 'max') ? '1wk' : '1d'
                 });
                 quotes = histData.map((q: any) => ({ date: q.date, close: q.close || q.adjclose }));
               }
