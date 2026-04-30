@@ -544,13 +544,13 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
     const generateAnalysis = async () => {
       setLoading(true);
       try {
-        // Fetch 6 months of data for deeper analysis
-        const res = await fetch(`/api/history?symbol=${stock.ticker}&range=6m`);
-        const history = await res.json();
+        // 1. Fetch historical data for context
+        const resHistory = await fetch(`/api/history?symbol=${stock.ticker}&range=6m`);
+        const history = await resHistory.json();
         
         if (!history || history.length < 20) throw new Error('Insufficient data');
 
-        // 1. RSI Calculation
+        // 2. Calculate baseline technicals to help the AI
         let gains = 0, losses = 0;
         for (let i = history.length - 14; i < history.length; i++) {
           const diff = history[i].close - history[i-1].close;
@@ -558,56 +558,42 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
         }
         const rs = (gains / 14) / (losses / 14 || 1);
         const rsi = 100 - (100 / (1 + rs));
-
-        // 2. Moving Averages
         const sma50 = history.slice(-50).reduce((a:any, b:any) => a + b.close, 0) / Math.min(history.length, 50);
-        const sma20 = history.slice(-20).reduce((a:any, b:any) => a + b.close, 0) / Math.min(history.length, 20);
-        
-        // 3. Support & Resistance (6 Month High/Low)
         const prices = history.map((q: any) => q.close);
         const resistance = Math.max(...prices);
         const support = Math.min(...prices);
 
-        // 4. Directional Logic
-        const currentPrice = stock.livePrice;
-        const distFromSupport = ((currentPrice - support) / support) * 100;
-        const distFromResist = ((resistance - currentPrice) / resistance) * 100;
-        
-        let sentiment = 'NEUTRAL';
-        let recommendation = 'HOLD';
-        let strategy = '';
-        let targetPrice = currentPrice * 1.15; // 15% upside default
+        // 3. Call Real AI Endpoint
+        const aiRes = await fetch('/api/ai-analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ticker: stock.ticker,
+            company: stock.company,
+            history: history.slice(-30), // Send last 30 days for detail
+            stats: {
+              currentPrice: stock.livePrice,
+              rsi: rsi.toFixed(1),
+              sma50: sma50.toFixed(2),
+              resistance: resistance.toFixed(2),
+              support: support.toFixed(2)
+            }
+          })
+        });
 
-        if (currentPrice > sma50 && rsi < 65) {
-          sentiment = 'STRONG BULLISH';
-          recommendation = 'ACCUMULATE';
-          strategy = `The stock is trading above its 50-day SMA (${sma50.toFixed(2)}), confirming a dominant uptrend. RSI is healthy at ${rsi.toFixed(0)}, suggesting momentum is sustainable. Strategy: Buy on dips toward ${sma50.toFixed(2)}.`;
-          targetPrice = resistance * 1.05;
-        } else if (rsi < 35 || currentPrice <= support * 1.05) {
-          sentiment = 'OVERSOLD / VALUE';
-          recommendation = 'STRONG BUY';
-          strategy = `Asset is testing major support at ${support.toFixed(2)}. Historical data suggests this is a high-conviction entry point for ${stock.company}. Strategy: Aggressive entry at current levels with a 3-month horizon.`;
-          targetPrice = sma50;
-        } else if (rsi > 75) {
-          sentiment = 'OVERBOUGHT';
-          recommendation = 'REDUCE / SELL';
-          strategy = `Extreme exuberance detected. The price is overextended from technical averages. High risk of mean reversion. Strategy: Scale out 50% of position and set tight trailing stop-loss at ${currentPrice * 0.95}.`;
-          targetPrice = sma50;
-        } else {
-          sentiment = 'CONSOLIDATING';
-          recommendation = 'CORE HOLD';
-          strategy = `Market is in price-discovery mode. ${stock.ticker} is trading in a range between ${support.toFixed(2)} and ${resistance.toFixed(2)}. Strategy: Maintain core position. Do not add until a breakout above ${resistance.toFixed(2)} occurs.`;
-        }
-        const trend = currentPrice > sma50 ? 'Bullish' : 'Bearish';
+        const aiData = await aiRes.json();
+        const trend = stock.livePrice > sma50 ? 'Bullish' : 'Bearish';
 
         setAnalysis({ 
           rsi, sma50, resistance, support, trend,
-          sentiment, recommendation, strategy, 
-          upside: ((targetPrice - currentPrice) / currentPrice) * 100,
-          targetPrice
+          sentiment: aiData.sentiment || 'NEUTRAL',
+          recommendation: aiData.recommendation || 'HOLD',
+          strategy: aiData.narrative || 'Strategy generation failed.',
+          targetPrice: Number(aiData.targetPrice) || stock.livePrice * 1.1,
+          upside: (((Number(aiData.targetPrice) || stock.livePrice * 1.1) - stock.livePrice) / stock.livePrice) * 100
         });
       } catch (e) {
-        console.error(e);
+        console.error('Analysis failed:', e);
       } finally {
         setLoading(false);
       }
