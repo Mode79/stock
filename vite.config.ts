@@ -85,7 +85,7 @@ export default defineConfig(({ mode }) => {
                   IMPORTANT: Format your response as a valid JSON object with these keys: "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "narrative", "narrative_ar", "targetPrice". 
                   Do not include any markdown formatting or extra text outside the JSON.`;
 
-                  const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_KEY}`, {
+                  const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -163,7 +163,7 @@ export default defineConfig(({ mode }) => {
                   "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "targetPrice".
                   Return ONLY the JSON.`;
 
-                  const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_KEY}`, {
+                  const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
