@@ -63,6 +63,7 @@ function App() {
   });
   const [isUpdating, setIsUpdating] = useState(false);
   const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
+  const [analyzingTicker, setAnalyzingTicker] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [staleData, setStaleData] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -169,6 +170,7 @@ function App() {
     const newAnalytics: Record<string, any> = { ...analyticsData };
     
     for (const h of holdings) {
+      setAnalyzingTicker(h.ticker);
       try {
         const resHistory = await fetch(`/api/history?symbol=${h.ticker}&range=6m`);
         const history = await resHistory.json();
@@ -207,10 +209,14 @@ function App() {
         };
         setAnalyticsData({ ...newAnalytics });
         localStorage.setItem('thndr_analytics', JSON.stringify(newAnalytics));
+        
+        // Short delay to prevent rate limiting
+        await new Promise(r => setTimeout(r, 500));
       } catch (e) {
         console.error(`Failed to analyze ${h.ticker}`, e);
       }
     }
+    setAnalyzingTicker(null);
     setIsAnalyzingAll(false);
   };
 
@@ -247,7 +253,7 @@ function App() {
           </button>
           <button className="btn" onClick={updateAllAnalytics} disabled={isAnalyzingAll}>
             <Brain size={16} className={isAnalyzingAll ? 'spinning' : ''} />
-            Update Analytics
+            {isAnalyzingAll ? `Analyzing ${analyzingTicker}...` : 'Update Analytics'}
           </button>
           <button className="btn" onClick={fetchLivePrices} disabled={isUpdating}>
             <RefreshCw size={16} className={isUpdating ? 'spinning' : ''} />
@@ -317,7 +323,7 @@ function App() {
                     <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     <td style={{ textAlign: 'center' }}>
-                      {analyticsData[h.ticker] ? (
+                      {analyzingTicker === h.ticker ? <RefreshCw size={12} className="spinning" /> : analyticsData[h.ticker] ? (
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: (analyticsData[h.ticker]?.sentiment || '').includes('BULL') ? 'var(--color-green)' : (analyticsData[h.ticker]?.sentiment || '').includes('SELL') ? 'var(--color-red)' : 'var(--color-yellow)' }}>
                           {analyticsData[h.ticker]?.sentiment || '-'}
                         </span>
