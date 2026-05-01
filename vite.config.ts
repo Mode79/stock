@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     filter: [{ left: 'name', operation: 'match', right: query.toUpperCase() }],
-                    columns: ['name', 'description'], sort: { sortBy: 'name', sortOrder: 'asc' }, range: [0, 15]
+                    columns: ['name', 'description', 'logoid'], sort: { sortBy: 'name', sortOrder: 'asc' }, range: [0, 15]
                   })
                 });
                 const tvResDesc = await fetch('https://scanner.tradingview.com/egypt/scan', {
@@ -35,7 +35,7 @@ export default defineConfig(({ mode }) => {
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     filter: [{ left: 'description', operation: 'match', right: query.toUpperCase() }],
-                    columns: ['name', 'description'], sort: { sortBy: 'name', sortOrder: 'asc' }, range: [0, 15]
+                    columns: ['name', 'description', 'logoid'], sort: { sortBy: 'name', sortOrder: 'asc' }, range: [0, 15]
                   })
                 });
                 const dataName = await tvRes.json();
@@ -43,7 +43,7 @@ export default defineConfig(({ mode }) => {
                 const resultsMap = new Map();
                 [...(dataName.data || []), ...(dataDesc.data || [])].forEach((item: any) => {
                   const symbol = item.s.replace('EGX:', '');
-                  if (!resultsMap.has(symbol)) resultsMap.set(symbol, { symbol, name: item.d[1] });
+                  if (!resultsMap.has(symbol)) resultsMap.set(symbol, { symbol, name: item.d[1], logoid: item.d[2] });
                 });
                 res.setHeader('Content-Type', 'application/json');
                 res.end(JSON.stringify(Array.from(resultsMap.values()).slice(0, 10)));
@@ -180,13 +180,13 @@ export default defineConfig(({ mode }) => {
                   const tvRes = await fetch('https://scanner.tradingview.com/egypt/scan', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ symbols: { tickers: tvTickers, query: { types: [] } }, columns: ['close', 'change', 'change_abs', 'description', 'sector'] })
+                    body: JSON.stringify({ symbols: { tickers: tvTickers, query: { types: [] } }, columns: ['close', 'change', 'change_abs', 'description', 'sector', 'logoid'] })
                   });
                   const tvData = await tvRes.json();
                   const tvMap: Record<string, any> = {};
                   if (tvData.data) {
                     tvData.data.forEach((item: any) => {
-                      tvMap[item.s.replace('EGX:', '')] = { price: item.d[0], changePercent: item.d[1], name: item.d[3], sector: item.d[4] };
+                      tvMap[item.s.replace('EGX:', '')] = { price: item.d[0], changePercent: item.d[1], name: item.d[3], sector: item.d[4], logoid: item.d[5] };
                     });
                   }
                   let yfMap: Record<string, any> = {};
@@ -200,7 +200,11 @@ export default defineConfig(({ mode }) => {
                   const finalResponseMap: Record<string, any> = {};
                   tickers.forEach((t: string) => {
                     const symbol = t.replace('.CA', '');
-                    const meta = { name: tvMap[symbol]?.name || yfMap[symbol]?.name || symbol, sector: tvMap[symbol]?.sector || 'Other' };
+                    const meta = { 
+                      name: tvMap[symbol]?.name || yfMap[symbol]?.name || symbol, 
+                      sector: tvMap[symbol]?.sector || 'Other',
+                      logoid: tvMap[symbol]?.logoid || null
+                    };
                     finalResponseMap[symbol] = { ...(tvMap[symbol] || yfMap[symbol]), ...meta };
                   });
                   res.setHeader('Content-Type', 'application/json');

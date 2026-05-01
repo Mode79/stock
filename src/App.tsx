@@ -31,7 +31,12 @@ interface Holding {
   avgCost: number;
   totalCost: number;
   livePrice: number;
+  logoid?: string | null;
 }
+
+const getLogoUrl = (logoid: string | null | undefined) => {
+  return logoid ? `https://s3-symbol-logo.tradingview.com/${logoid}.svg` : null;
+};
 
 // Initial state with your 7 stocks but formatted for the new system (fees merged into price)
 const SEED_TRANSACTIONS: Transaction[] = [
@@ -122,7 +127,8 @@ function App() {
           shares: data.shares,
           avgCost: data.totalCost / data.shares,
           totalCost: data.totalCost,
-          livePrice: meta.price || (data.totalCost / data.shares)
+          livePrice: meta.price || (data.totalCost / data.shares),
+          logoid: meta.logoid
         };
       });
 
@@ -212,7 +218,8 @@ function App() {
                 <th style={{ textAlign: 'right' }}>Shares</th>
                 <th style={{ textAlign: 'right' }}>Avg Cost</th>
                 <th style={{ textAlign: 'right' }}>Live Price</th>
-                <th style={{ textAlign: 'right' }}>Value</th>
+                <th style={{ textAlign: 'right' }}>Cost Value</th>
+                <th style={{ textAlign: 'right' }}>Live Value</th>
                 <th style={{ textAlign: 'right' }}>P&L (EGP)</th>
                 <th style={{ textAlign: 'right' }}>Return</th>
                 <th style={{ textAlign: 'center' }}>Actions</th>
@@ -225,12 +232,20 @@ function App() {
                 const pnlPct = (pnl / h.totalCost) * 100;
                 return (
                   <tr key={h.ticker}>
-                    <td style={{ fontWeight: 700 }}>{h.ticker}</td>
+                    <td style={{ fontWeight: 700 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                          {getLogoUrl(h.logoid) ? <img src={getLogoUrl(h.logoid)!} alt="" style={{ width: '100%', height: '100%' }} /> : <TrendingUp size={14} className="text-muted" />}
+                        </div>
+                        {h.ticker}
+                      </div>
+                    </td>
                     <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{h.company}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{h.shares}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{h.avgCost.toFixed(4)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{h.livePrice.toFixed(2)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                    <td className="mono" style={{ textAlign: 'right', opacity: 0.8 }}>{h.totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     <td style={{ textAlign: 'right' }}><span className={`badge ${pnl >= 0 ? 'badge-green' : 'badge-red'}`}>{pnlPct.toFixed(2)}%</span></td>
                     <td style={{ textAlign: 'center' }}>
@@ -312,6 +327,7 @@ function App() {
         <HistoryModal 
           ticker={historyStock} 
           company={holdings.find(h => h.ticker === historyStock)?.company || historyStock}
+          logoid={holdings.find(h => h.ticker === historyStock)?.logoid}
           onClose={() => setHistoryStock(null)} 
         />
       )}
@@ -326,7 +342,7 @@ function App() {
   );
 }
 
-function HistoryModal({ ticker, company, onClose }: { ticker: string; company: string; onClose: () => void }) {
+function HistoryModal({ ticker, company, logoid, onClose }: { ticker: string; company: string; logoid?: string | null; onClose: () => void }) {
   const [range, setRange] = useState('1m');
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -373,13 +389,18 @@ function HistoryModal({ ticker, company, onClose }: { ticker: string; company: s
     <div className="modal-overlay">
       <div className="modal-content" style={{ width: '800px', maxWidth: '95vw' }}>
         <div className="card-header">
-          <div>
-            <h3 className="card-title">{ticker} - {company}</h3>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
-              <span className="mono font-bold" style={{ fontSize: '1.25rem' }}>EGP {latestPrice.toFixed(2)}</span>
-              <span className={`pnl-chip ${pnl >= 0 ? 'up' : 'down'}`} style={{ fontSize: '0.8rem' }}>
-                {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} ({pnlPct.toFixed(2)}%)
-              </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+              {getLogoUrl(logoid) ? <img src={getLogoUrl(logoid)!} alt="" style={{ width: '100%', height: '100%' }} /> : <TrendingUp size={20} className="text-muted" />}
+            </div>
+            <div>
+              <h3 className="card-title">{ticker} - {company}</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+                <span className="mono font-bold" style={{ fontSize: '1.25rem' }}>EGP {latestPrice.toFixed(2)}</span>
+                <span className={`pnl-chip ${pnl >= 0 ? 'up' : 'down'}`} style={{ fontSize: '0.8rem' }}>
+                  {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} ({pnlPct.toFixed(2)}%)
+                </span>
+              </div>
             </div>
           </div>
           <button className="icon-btn" onClick={onClose}><X size={24} /></button>
@@ -517,8 +538,15 @@ function TransactionForm({ onAdd }: { onAdd: (tx: any) => void }) {
                   setTicker(s.symbol);
                   setShowSuggestions(false);
                 }}>
-                  <b>{s.symbol}</b>
-                  <small>{s.name}</small>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                      {getLogoUrl(s.logoid) ? <img src={getLogoUrl(s.logoid)} alt="" style={{ width: '100%', height: '100%' }} /> : <TrendingUp size={12} />}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <b>{s.symbol}</b>
+                      <small>{s.name}</small>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -620,8 +648,8 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
       <div className="modal-content" style={{ width: '750px', padding: '0', background: '#0d1117', border: '1px solid #30363d', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)' }}>
         <div style={{ padding: '1.5rem', background: 'linear-gradient(90deg, #161b22 0%, #0d1117 100%)', borderBottom: '1px solid #30363d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <div style={{ background: 'var(--color-yellow)', padding: '12px', borderRadius: '12px', boxShadow: '0 0 15px rgba(210, 153, 34, 0.2)' }}>
-              <Brain size={24} color="#0d1117" />
+            <div style={{ background: 'var(--color-yellow)', padding: '0', borderRadius: '12px', boxShadow: '0 0 15px rgba(210, 153, 34, 0.2)', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+              {getLogoUrl(stock.logoid) ? <img src={getLogoUrl(stock.logoid)!} alt="" style={{ width: '100%', height: '100%' }} /> : <Brain size={24} color="#0d1117" />}
             </div>
             <div>
               <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>{stock.ticker} Intelligence Report</h2>
