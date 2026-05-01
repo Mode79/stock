@@ -74,14 +74,15 @@ export default defineConfig(({ mode }) => {
                   - 6-Month High/Low: ${stats.resistance} / ${stats.support}
                   - Last 10 days Close Prices: ${history.slice(-10).map((h:any) => h.close).join(', ')}
 
-                  Provide a professional, directional, and highly insightful analysis. 
+                  Provide a professional, directional, and highly insightful analysis in BOTH English and Arabic.
+                  
                   Include:
-                  1. A "Sentiment" (e.g., Aggressive Bullish, Neutral, Bearish).
-                  2. A "Strategic Recommendation" (Buy/Sell/Hold/Accumulate).
-                  3. A "Deep Narrative" (3-4 sentences) explaining the internal/external situation and market structure.
-                  4. A "Target Price" for the next 3 months.
+                  1. "sentiment" and "sentiment_ar" (e.g., Aggressive Bullish / متفائل بقوة).
+                  2. "recommendation" and "recommendation_ar" (e.g., Buy / شراء).
+                  3. "narrative" and "narrative_ar" (3-4 sentences explaining the situation).
+                  4. "targetPrice" for the next 3 months.
 
-                  IMPORTANT: Format your response as a valid JSON object with these keys: "sentiment", "recommendation", "narrative", "targetPrice". 
+                  IMPORTANT: Format your response as a valid JSON object with these keys: "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "narrative", "narrative_ar", "targetPrice". 
                   Do not include any markdown formatting or extra text outside the JSON.`;
 
                   const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_KEY}`, {
@@ -111,8 +112,11 @@ export default defineConfig(({ mode }) => {
                   const parsed = JSON.parse(aiText);
                   const standardized = {
                     sentiment: parsed.sentiment || parsed.Sentiment || 'NEUTRAL',
+                    sentiment_ar: parsed.sentiment_ar || 'حيادي',
                     recommendation: parsed.recommendation || parsed.Recommendation || 'HOLD',
+                    recommendation_ar: parsed.recommendation_ar || 'انتظار',
                     narrative: parsed.narrative || parsed.Narrative || parsed.strategy || parsed.Strategy || parsed.deepNarrative || 'Analysis generation failed.',
+                    narrative_ar: parsed.narrative_ar || 'فشل توليد التحليل باللغة العربية.',
                     targetPrice: parsed.targetPrice || parsed.TargetPrice || stats.currentPrice * 1.1
                   };
                   

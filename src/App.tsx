@@ -620,8 +620,11 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
         setAnalysis({ 
           rsi, sma50, resistance, support, trend,
           sentiment: aiData.sentiment || 'NEUTRAL',
+          sentiment_ar: aiData.sentiment_ar || 'حيادي',
           recommendation: aiData.recommendation || 'HOLD',
+          recommendation_ar: aiData.recommendation_ar || 'انتظار',
           strategy: aiData.narrative || 'Strategy generation failed.',
+          strategy_ar: aiData.narrative_ar || 'فشل توليد التحليل.',
           targetPrice: Number(aiData.targetPrice) || stock.livePrice * 1.1,
           upside: (((Number(aiData.targetPrice) || stock.livePrice * 1.1) - stock.livePrice) / stock.livePrice) * 100
         });
@@ -639,57 +642,124 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
       } finally {
         setLoading(false);
       }
-    };
+  const [lang, setLang] = useState<'en' | 'ar'>('en');
+
+  const t = {
+    en: {
+      report: 'Intelligence Report',
+      forecast: 'Deep Neural Analysis & Forecasting',
+      sentiment: 'Market Sentiment',
+      target: 'Price Target (3M)',
+      technical: 'Technical RSI',
+      insight: 'Deep Insight & Forecast',
+      strategy: 'Actionable Strategy',
+      levels: 'Key Levels',
+      resistance: 'Resistance (Max)',
+      pivot: 'Pivot (SMA50)',
+      support: 'Support (Min)',
+      confidence: 'AI Confidence',
+      engine: 'Institutional-Grade Analysis Engine v4.0',
+      recommendation: 'RECOMMENDATION',
+      scanning: 'Scanning historical vectors for',
+      analyzing: 'Analyzing Market Structure...',
+      overbought: 'Overbought',
+      oversold: 'Oversold',
+      stable: 'Stable',
+      bullish: 'bullish',
+      bearish: 'bearish',
+      insight_text: `Based on internal volatility scans, ${stock.company} is currently navigating a ${analysis?.trend?.toLowerCase()} phase. The current price of ${stock.livePrice.toFixed(2)} is interacting with the 6-month structural channel. We anticipate a breakout towards the ${analysis?.targetPrice?.toFixed(2)} resistance level within the next 45-60 trading days, provided macro-liquidity in the ${stock.sector} sector remains stable.`,
+      dir: 'ltr'
+    },
+    ar: {
+      report: 'تقرير استخبارات السوق',
+      forecast: 'تحليل عصبي عميق وتوقعات',
+      sentiment: 'مشاعر السوق',
+      target: 'السعر المستهدف (3 أشهر)',
+      technical: 'مؤشر القوة النسبية التقني',
+      insight: 'نظرة ثاقبة وتوقعات عميقة',
+      strategy: 'الاستراتيجية القابلة للتنفيذ',
+      levels: 'المستويات الرئيسية',
+      resistance: 'المقاومة (الحد الأقصى)',
+      pivot: 'نقطة الارتكاز (SMA50)',
+      support: 'الدعم (الحد الأدنى)',
+      confidence: 'ثقة الذكاء الاصطناعي',
+      engine: 'محرك تحليل من الدرجة المؤسسية v4.0',
+      recommendation: 'التوصية',
+      scanning: 'جاري مسح المؤشرات التاريخية لشركة',
+      analyzing: 'جاري تحليل هيكل السوق...',
+      overbought: 'تشبع شرائي',
+      oversold: 'تشبع بيعي',
+      stable: 'مستقر',
+      bullish: 'صعودية',
+      bearish: 'هبوطية',
+      insight_text: `بناءً على عمليات مسح التقلبات الداخلية، تمر شركة ${stock.company} حاليًا بمرحلة ${analysis?.trend === 'Bullish' ? 'صعودية' : 'هبوطية'}. يتفاعل السعر الحالي البالغ ${stock.livePrice.toFixed(2)} مع القناة الهيكلية لمدة 6 أشهر. نتوقع اختراقاً نحو مستوى المقاومة ${analysis?.targetPrice?.toFixed(2)} في غضون 45-60 يوماً تداول قادمة، بشرط استقرار السيولة الكلية في قطاع ${stock.sector}.`,
+      dir: 'rtl'
+    }
+  }[lang];
+
+  useEffect(() => {
     generateAnalysis();
   }, [stock]);
 
   return (
     <div className="modal-overlay">
-      <div className="modal-content" style={{ width: '750px', padding: '0', background: '#0d1117', border: '1px solid #30363d', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)' }}>
+      <div className="modal-content" style={{ width: '750px', padding: '0', background: '#0d1117', border: '1px solid #30363d', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)', direction: t.dir }}>
         <div style={{ padding: '1.5rem', background: 'linear-gradient(90deg, #161b22 0%, #0d1117 100%)', borderBottom: '1px solid #30363d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <div style={{ background: 'var(--color-yellow)', padding: '0', borderRadius: '12px', boxShadow: '0 0 15px rgba(210, 153, 34, 0.2)', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
               {getLogoUrl(stock.logoid) ? <img src={getLogoUrl(stock.logoid)!} alt="" style={{ width: '100%', height: '100%' }} /> : <Brain size={24} color="#0d1117" />}
             </div>
             <div>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>{stock.ticker} Intelligence Report</h2>
-              <p className="text-muted" style={{ fontSize: '0.8rem' }}>Deep Neural Analysis & Forecasting</p>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>{stock.ticker} {t.report}</h2>
+              <p className="text-muted" style={{ fontSize: '0.8rem' }}>{t.forecast}</p>
             </div>
           </div>
-          <button className="icon-btn" onClick={onClose}><X size={24} /></button>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '2px' }}>
+              <button 
+                onClick={() => setLang('en')}
+                style={{ border: 'none', background: lang === 'en' ? 'var(--color-blue)' : 'transparent', color: 'white', padding: '4px 8px', borderRadius: '6px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}
+              >EN</button>
+              <button 
+                onClick={() => setLang('ar')}
+                style={{ border: 'none', background: lang === 'ar' ? 'var(--color-blue)' : 'transparent', color: 'white', padding: '4px 8px', borderRadius: '6px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}
+              >AR</button>
+            </div>
+            <button className="icon-btn" onClick={onClose}><X size={24} /></button>
+          </div>
         </div>
 
         {loading ? (
           <div style={{ height: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.5rem' }}>
             <RefreshCw className="spinning text-yellow" size={48} />
             <div style={{ textAlign: 'center' }}>
-              <p className="font-bold">Analyzing Market Structure...</p>
-              <p className="text-muted" style={{ fontSize: '0.8rem' }}>Scanning historical vectors for {stock.company}</p>
+              <p className="font-bold">{t.analyzing}</p>
+              <p className="text-muted" style={{ fontSize: '0.8rem' }}>{t.scanning} {stock.company}</p>
             </div>
           </div>
         ) : (
           <div style={{ padding: '2rem' }}>
             <div className="grid-3" style={{ gap: '1rem', marginBottom: '2rem' }}>
               <div style={{ background: '#161b22', padding: '1rem', borderRadius: '12px', border: '1px solid #30363d' }}>
-                <label className="text-muted" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Market Sentiment</label>
+                <label className="text-muted" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.sentiment}</label>
                 <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: analysis.sentiment.includes('BULL') ? 'var(--color-green)' : analysis.sentiment.includes('SELL') ? 'var(--color-red)' : 'var(--color-yellow)' }} />
-                  <span style={{ fontWeight: 800, fontSize: '1.1rem' }}>{analysis.sentiment}</span>
+                  <span style={{ fontWeight: 800, fontSize: '1.1rem' }}>{lang === 'en' ? analysis.sentiment : analysis.sentiment_ar}</span>
                 </div>
               </div>
               <div style={{ background: '#161b22', padding: '1rem', borderRadius: '12px', border: '1px solid #30363d' }}>
-                <label className="text-muted" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Price Target (3M)</label>
+                <label className="text-muted" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.target}</label>
                 <div style={{ marginTop: '0.5rem' }}>
                   <span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--color-green)' }}>EGP {analysis.targetPrice.toFixed(2)}</span>
                   <span style={{ fontSize: '0.75rem', marginLeft: '0.5rem', color: 'var(--color-green)' }}>+{analysis.upside.toFixed(1)}%</span>
                 </div>
               </div>
               <div style={{ background: '#161b22', padding: '1rem', borderRadius: '12px', border: '1px solid #30363d' }}>
-                <label className="text-muted" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Technical RSI</label>
+                <label className="text-muted" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.technical}</label>
                 <div style={{ marginTop: '0.5rem' }}>
                   <span style={{ fontWeight: 800, fontSize: '1.1rem' }}>{analysis.rsi.toFixed(1)}</span>
                   <span style={{ fontSize: '0.75rem', marginLeft: '0.5rem', color: analysis.rsi > 70 ? 'var(--color-red)' : analysis.rsi < 30 ? 'var(--color-green)' : 'var(--text-muted)' }}>
-                    ({analysis.rsi > 70 ? 'Overbought' : analysis.rsi < 30 ? 'Oversold' : 'Stable'})
+                    ({analysis.rsi > 70 ? t.overbought : analysis.rsi < 30 ? t.oversold : t.stable})
                   </span>
                 </div>
               </div>
@@ -700,44 +770,39 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
                 <div style={{ marginBottom: '1.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
                     <Info size={18} className="text-blue" />
-                    <h4 style={{ margin: 0, fontSize: '1rem' }}>Deep Insight & Forecast</h4>
+                    <h4 style={{ margin: 0, fontSize: '1rem' }}>{t.insight}</h4>
                   </div>
-                  <p style={{ lineHeight: 1.7, color: '#8b949e', fontSize: '0.95rem' }}>
-                    Based on internal volatility scans, <strong>{stock.company}</strong> is currently navigating a {analysis.trend.toLowerCase()} phase. 
-                    The current price of {stock.livePrice.toFixed(2)} is interacting with the 6-month structural channel. 
-                    We anticipate a breakout towards the <strong>{analysis.targetPrice.toFixed(2)}</strong> resistance level within the next 45-60 trading days, 
-                    provided macro-liquidity in the <strong>{stock.sector}</strong> sector remains stable.
-                  </p>
+                  <p style={{ lineHeight: 1.7, color: '#8b949e', fontSize: '0.95rem' }}>{t.insight_text}</p>
                 </div>
                 
                 <div style={{ background: 'rgba(56, 139, 253, 0.1)', border: '1px solid rgba(56, 139, 253, 0.3)', padding: '1.25rem', borderRadius: '12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
                     <Target size={18} className="text-blue" />
-                    <h4 style={{ margin: 0, fontSize: '1rem', color: '#58a6ff' }}>Actionable Strategy</h4>
+                    <h4 style={{ margin: 0, fontSize: '1rem', color: '#58a6ff' }}>{t.strategy}</h4>
                   </div>
-                  <p style={{ lineHeight: 1.6, fontSize: '0.95rem', margin: 0 }}>{analysis.strategy}</p>
+                  <p style={{ lineHeight: 1.6, fontSize: '0.95rem', margin: 0 }}>{lang === 'en' ? analysis.strategy : analysis.strategy_ar}</p>
                 </div>
               </div>
 
-              <div style={{ borderLeft: '1px solid #30363d', paddingLeft: '2rem' }}>
-                <h4 style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '1rem' }}>Key Levels</h4>
+              <div style={{ borderLeft: lang === 'en' ? '1px solid #30363d' : 'none', borderRight: lang === 'ar' ? '1px solid #30363d' : 'none', paddingLeft: lang === 'en' ? '2rem' : '0', paddingRight: lang === 'ar' ? '2rem' : '0' }}>
+                <h4 style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '1rem' }}>{t.levels}</h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Resistance (Max)</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.resistance}</span>
                     <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-red)' }}>EGP {analysis.resistance.toFixed(2)}</div>
                   </div>
                   <div>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Pivot (SMA50)</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.pivot}</span>
                     <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-blue)' }}>EGP {analysis.sma50.toFixed(2)}</div>
                   </div>
                   <div>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Support (Min)</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.support}</span>
                     <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-green)' }}>EGP {analysis.support.toFixed(2)}</div>
                   </div>
                 </div>
                 
                 <div style={{ marginTop: '2rem', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid #30363d' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>AI Confidence</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>{t.confidence}</div>
                   <div style={{ fontWeight: 800, fontSize: '1.5rem' }}>89%</div>
                 </div>
               </div>
@@ -746,9 +811,9 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
             <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid #30363d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <ShieldAlert size={14} className="text-red" />
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Institutional-Grade Analysis Engine v4.0</span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.engine}</span>
               </div>
-              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-yellow)' }}>RECOMMENDATION: {analysis.recommendation}</span>
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-yellow)' }}>{t.recommendation}: {lang === 'en' ? analysis.recommendation : analysis.recommendation_ar}</span>
             </div>
           </div>
         )}
