@@ -57,7 +57,12 @@ function App() {
   });
   
   const [marketData, setMarketData] = useState<Record<string, any>>({});
+  const [analyticsData, setAnalyticsData] = useState<Record<string, any>>(() => {
+    const saved = localStorage.getItem('thndr_analytics');
+    return saved ? JSON.parse(saved) : {};
+  });
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [staleData, setStaleData] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -158,6 +163,63 @@ function App() {
     }
   };
 
+  const updateAllAnalytics = async () => {
+    if (holdings.length === 0) return;
+    setIsAnalyzingAll(true);
+    const newAnalytics: Record<string, any> = { ...analyticsData };
+    
+    for (const h of holdings) {
+      try {
+        const resHistory = await fetch(`/api/history?symbol=${h.ticker}&range=6m`);
+        const history = await resHistory.json();
+        if (!history || history.length < 20) continue;
+
+        let gains = 0, losses = 0;
+        for (let i = history.length - 14; i < history.length; i++) {
+          const diff = history[i].close - history[i-1].close;
+          if (diff > 0) gains += diff; else losses -= diff;
+        }
+        const rs = (gains / 14) / (losses / 14 || 1);
+        const rsi = 100 - (100 / (1 + rs));
+
+        const aiRes = await fetch('/api/ai-analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ticker: h.ticker,
+            company: h.company,
+            history: history.slice(-30),
+            stats: {
+              currentPrice: h.livePrice,
+              rsi: rsi.toFixed(1),
+              sma50: (history.slice(-50).reduce((a:any, b:any) => a + b.close, 0) / Math.min(history.length, 50)).toFixed(2),
+              resistance: Math.max(...history.map((q:any)=>q.close)).toFixed(2),
+              support: Math.min(...history.map((q:any)=>q.close)).toFixed(2)
+            }
+          })
+        });
+        const aiData = await aiRes.json();
+        newAnalytics[h.ticker] = {
+          sentiment: aiData.sentiment,
+          recommendation: aiData.recommendation,
+          targetPrice: aiData.targetPrice,
+          rsi: rsi.toFixed(1)
+        };
+        setAnalyticsData({ ...newAnalytics });
+        localStorage.setItem('thndr_analytics', JSON.stringify(newAnalytics));
+      } catch (e) {
+        console.error(`Failed to analyze ${h.ticker}`, e);
+      }
+    }
+    setIsAnalyzingAll(false);
+  };
+
+  useEffect(() => {
+    if (holdings.length > 0 && Object.keys(analyticsData).length === 0) {
+      updateAllAnalytics();
+    }
+  }, [holdings.length]);
+
   useEffect(() => {
     fetchLivePrices();
     const interval = setInterval(fetchLivePrices, 60000);
@@ -182,6 +244,10 @@ function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <button className="btn" onClick={() => setIsModalOpen(true)} style={{ background: 'var(--color-blue)', color: 'white', border: 'none' }}>
             <Plus size={16} /> New Transaction
+          </button>
+          <button className="btn" onClick={updateAllAnalytics} disabled={isAnalyzingAll}>
+            <Brain size={16} className={isAnalyzingAll ? 'spinning' : ''} />
+            Update Analytics
           </button>
           <button className="btn" onClick={fetchLivePrices} disabled={isUpdating}>
             <RefreshCw size={16} className={isUpdating ? 'spinning' : ''} />
@@ -221,7 +287,10 @@ function App() {
                 <th style={{ textAlign: 'right' }}>Cost Value</th>
                 <th style={{ textAlign: 'right' }}>Live Value</th>
                 <th style={{ textAlign: 'right' }}>P&L (EGP)</th>
-                <th style={{ textAlign: 'right' }}>Return</th>
+                <th style={{ textAlign: 'center' }}>Sentiment</th>
+                <th style={{ textAlign: 'right' }}>Target</th>
+                <th style={{ textAlign: 'center' }}>RSI</th>
+                <th style={{ textAlign: 'center' }}>REC</th>
                 <th style={{ textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
@@ -247,7 +316,30 @@ function App() {
                     <td className="mono" style={{ textAlign: 'right', opacity: 0.8 }}>{h.totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                    <td style={{ textAlign: 'right' }}><span className={`badge ${pnl >= 0 ? 'badge-green' : 'badge-red'}`}>{pnlPct.toFixed(2)}%</span></td>
+                    <td style={{ textAlign: 'center' }}>
+                      {analyticsData[h.ticker] ? (
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: analyticsData[h.ticker].sentiment.includes('BULL') ? 'var(--color-green)' : analyticsData[h.ticker].sentiment.includes('SELL') ? 'var(--color-red)' : 'var(--color-yellow)' }}>
+                          {analyticsData[h.ticker].sentiment}
+                        </span>
+                      ) : '-'}
+                    </td>
+                    <td className="mono" style={{ textAlign: 'right', fontSize: '0.8rem' }}>
+                      {analyticsData[h.ticker] ? `EGP ${analyticsData[h.ticker].targetPrice}` : '-'}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      {analyticsData[h.ticker] ? (
+                        <span style={{ fontSize: '0.75rem', color: analyticsData[h.ticker].rsi > 70 ? 'var(--color-red)' : analyticsData[h.ticker].rsi < 30 ? 'var(--color-green)' : 'var(--text-muted)' }}>
+                          {analyticsData[h.ticker].rsi}
+                        </span>
+                      ) : '-'}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      {analyticsData[h.ticker] ? (
+                        <span className={`badge ${analyticsData[h.ticker].recommendation.includes('BUY') || analyticsData[h.ticker].recommendation.includes('ACCUMULATE') ? 'badge-green' : analyticsData[h.ticker].recommendation.includes('SELL') ? 'badge-red' : 'badge-yellow'}`}>
+                          {analyticsData[h.ticker].recommendation}
+                        </span>
+                      ) : '-'}
+                    </td>
                     <td style={{ textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
                         <button className="icon-btn" title="View History" onClick={() => setHistoryStock(h.ticker)}>
