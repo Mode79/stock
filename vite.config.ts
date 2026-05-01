@@ -107,9 +107,6 @@ export default defineConfig(({ mode }) => {
                   }
 
                   let aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-                  console.log('[AI Response Raw]', aiText);
-
-                  // Robust JSON cleaning: strip markdown code blocks if present
                   if (aiText.includes('```')) {
                     aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
                   }
@@ -129,6 +126,60 @@ export default defineConfig(({ mode }) => {
                   res.end(JSON.stringify(standardized));
                 } catch (e: any) {
                   console.error('[Proxy AI Analyze error]:', e.message);
+                  res.writeHead(500).end(JSON.stringify({ error: e.message }));
+                }
+              });
+              return;
+            }
+
+            // 2b. BATCH AI ANALYZE
+            if (req.method === 'POST' && url.includes('ai-analyze-batch')) {
+              let body = '';
+              req.on('data', chunk => body += chunk.toString());
+              req.on('end', async () => {
+                try {
+                  const { stocks } = JSON.parse(body);
+                  if (!GEMINI_KEY) throw new Error('Gemini API Key missing');
+
+                  const prompt = `Act as a Senior Institutional Portfolio Manager for EGX. 
+                  Analyze the following stocks and provide professional insights for each.
+                  
+                  DATA:
+                  ${stocks.map((s:any) => `
+                  STOCKED: ${s.company} (${s.ticker})
+                  - Price: EGP ${s.stats.currentPrice}
+                  - RSI: ${s.stats.rsi}
+                  - SMA50: ${s.stats.sma50}
+                  - Support/Resistance: ${s.stats.support} / ${s.stats.resistance}
+                  - Recent Close: ${s.history.slice(-5).map((h:any)=>h.close).join(', ')}
+                  `).join('\n')}
+
+                  For EACH stock, provide:
+                  - "sentiment" (English and Arabic)
+                  - "recommendation" (English and Arabic)
+                  - "targetPrice" (next 3 months)
+
+                  Format the output as a SINGLE JSON object where keys are EXACTLY the ticker symbols and values are objects with:
+                  "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "targetPrice".
+                  Return ONLY the JSON.`;
+
+                  const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_KEY}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      contents: [{ parts: [{ text: prompt }] }],
+                      generationConfig: { response_mime_type: "application/json" }
+                    })
+                  });
+                  const geminiData = await geminiRes.json();
+                  if (geminiData.error) throw new Error(geminiData.error.message);
+                  
+                  let aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+                  if (aiText.includes('```')) aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+                  
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(aiText);
+                } catch (e: any) {
                   res.writeHead(500).end(JSON.stringify({ error: e.message }));
                 }
               });

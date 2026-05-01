@@ -167,11 +167,13 @@ function App() {
   const updateAllAnalytics = async () => {
     if (holdings.length === 0) return;
     setIsAnalyzingAll(true);
-    const newAnalytics: Record<string, any> = { ...analyticsData };
+    setAnalyzingTicker('All Stocks');
     
-    for (const h of holdings) {
-      setAnalyzingTicker(h.ticker);
-      try {
+    try {
+      const batchData = [];
+      
+      // 1. Collect technical data for all stocks
+      for (const h of holdings) {
         const resHistory = await fetch(`/api/history?symbol=${h.ticker}&range=6m`);
         const history = await resHistory.json();
         if (!history || history.length < 20) continue;
@@ -183,51 +185,50 @@ function App() {
         }
         const rs = (gains / 14) / (losses / 14 || 1);
         const rsi = 100 - (100 / (1 + rs));
+        const sma50 = (history.slice(-50).reduce((a:any, b:any) => a + b.close, 0) / Math.min(history.length, 50)).toFixed(2);
+        const resistance = Math.max(...history.map((q:any)=>q.close)).toFixed(2);
+        const support = Math.min(...history.map((q:any)=>q.close)).toFixed(2);
 
-        const aiRes = await fetch('/api/ai-analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ticker: h.ticker,
-            company: h.company,
-            history: history.slice(-30),
-            stats: {
-              currentPrice: h.livePrice,
-              rsi: rsi.toFixed(1),
-              sma50: (history.slice(-50).reduce((a:any, b:any) => a + b.close, 0) / Math.min(history.length, 50)).toFixed(2),
-              resistance: Math.max(...history.map((q:any)=>q.close)).toFixed(2),
-              support: Math.min(...history.map((q:any)=>q.close)).toFixed(2)
-            }
-          })
+        batchData.push({
+          ticker: h.ticker,
+          company: h.company,
+          history: history.slice(-10),
+          stats: { currentPrice: h.livePrice, rsi: rsi.toFixed(1), sma50, resistance, support }
         });
-        const aiData = await aiRes.json();
-        
-        if (!aiRes.ok) {
-          if (aiData.code === 'RESOURCE_EXHAUSTED') {
-            newAnalytics[h.ticker] = { sentiment: 'RATE LIMIT', recommendation: 'WAIT', targetPrice: '-', rsi: rsi.toFixed(1) };
-          } else {
-            newAnalytics[h.ticker] = { sentiment: 'ERROR', recommendation: 'RETRY', targetPrice: '-', rsi: rsi.toFixed(1) };
-          }
-        } else {
-          newAnalytics[h.ticker] = {
-            sentiment: aiData.sentiment,
-            recommendation: aiData.recommendation,
-            targetPrice: aiData.targetPrice,
-            rsi: rsi.toFixed(1)
-          };
-        }
-
-        setAnalyticsData({ ...newAnalytics });
-        localStorage.setItem('thndr_analytics', JSON.stringify(newAnalytics));
-        
-        // Significant delay (4s) to prevent 'Resource Exhausted' on free tier
-        await new Promise(r => setTimeout(r, 4000));
-      } catch (e) {
-        console.error(`Failed to analyze ${h.ticker}`, e);
       }
+
+      // 2. Call Batch AI Endpoint
+      const aiRes = await fetch('/api/ai-analyze-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stocks: batchData })
+      });
+      
+      if (!aiRes.ok) throw new Error('Batch analysis failed');
+      const aiResults = await aiRes.json();
+      
+      // 3. Merge with technicals
+      const finalAnalytics: Record<string, any> = { ...analyticsData };
+      batchData.forEach(s => {
+        const ai = aiResults[s.ticker] || {};
+        finalAnalytics[s.ticker] = {
+          sentiment: ai.sentiment || 'NEUTRAL',
+          sentiment_ar: ai.sentiment_ar || 'حيادي',
+          recommendation: ai.recommendation || 'HOLD',
+          recommendation_ar: ai.recommendation_ar || 'انتظار',
+          targetPrice: ai.targetPrice || s.stats.currentPrice * 1.1,
+          rsi: s.stats.rsi
+        };
+      });
+
+      setAnalyticsData(finalAnalytics);
+      localStorage.setItem('thndr_analytics', JSON.stringify(finalAnalytics));
+    } catch (e) {
+      console.error('Batch analysis failed', e);
+    } finally {
+      setAnalyzingTicker(null);
+      setIsAnalyzingAll(false);
     }
-    setAnalyzingTicker(null);
-    setIsAnalyzingAll(false);
   };
 
   useEffect(() => {
@@ -333,11 +334,11 @@ function App() {
                     <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     <td style={{ textAlign: 'center' }}>
-                      {analyzingTicker === h.ticker ? <RefreshCw size={12} className="spinning" /> : analyticsData[h.ticker] ? (
+                      {analyticsData[h.ticker] ? (
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: (analyticsData[h.ticker]?.sentiment || '').includes('BULL') ? 'var(--color-green)' : (analyticsData[h.ticker]?.sentiment || '').includes('SELL') ? 'var(--color-red)' : 'var(--color-yellow)' }}>
                           {analyticsData[h.ticker]?.sentiment || '-'}
                         </span>
-                      ) : '-'}
+                      ) : isAnalyzingAll ? <RefreshCw size={12} className="spinning" /> : '-'}
                     </td>
                     <td className="mono" style={{ textAlign: 'right', fontSize: '0.8rem' }}>
                       {analyticsData[h.ticker]?.targetPrice ? `EGP ${analyticsData[h.ticker].targetPrice}` : '-'}
