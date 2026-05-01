@@ -84,7 +84,7 @@ export default defineConfig(({ mode }) => {
                   IMPORTANT: Format your response as a valid JSON object with these keys: "sentiment", "recommendation", "narrative", "targetPrice". 
                   Do not include any markdown formatting or extra text outside the JSON.`;
 
-                  const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`, {
+                  const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_KEY}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -94,12 +94,32 @@ export default defineConfig(({ mode }) => {
                   });
 
                   const geminiData = await geminiRes.json();
-                  const aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+                  
+                  if (geminiData.error) {
+                    console.error('[Gemini Error]', geminiData.error);
+                    throw new Error(geminiData.error.message);
+                  }
+
+                  let aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+                  console.log('[AI Response Raw]', aiText);
+
+                  // Robust JSON cleaning: strip markdown code blocks if present
+                  if (aiText.includes('```')) {
+                    aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+                  }
+
+                  const parsed = JSON.parse(aiText);
+                  const standardized = {
+                    sentiment: parsed.sentiment || parsed.Sentiment || 'NEUTRAL',
+                    recommendation: parsed.recommendation || parsed.Recommendation || 'HOLD',
+                    narrative: parsed.narrative || parsed.Narrative || parsed.strategy || parsed.Strategy || parsed.deepNarrative || 'Analysis generation failed.',
+                    targetPrice: parsed.targetPrice || parsed.TargetPrice || stats.currentPrice * 1.1
+                  };
                   
                   res.setHeader('Content-Type', 'application/json');
-                  res.end(aiText);
+                  res.end(JSON.stringify(standardized));
                 } catch (e: any) {
-                  console.error('AI Analyze error:', e.message);
+                  console.error('[Proxy AI Analyze error]:', e.message);
                   res.writeHead(500).end(JSON.stringify({ error: e.message }));
                 }
               });

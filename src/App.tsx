@@ -582,6 +582,11 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
         });
 
         const aiData = await aiRes.json();
+        
+        if (!aiRes.ok) {
+          throw new Error(aiData.error || 'Server error');
+        }
+
         const trend = stock.livePrice > sma50 ? 'Bullish' : 'Bearish';
 
         setAnalysis({ 
@@ -592,8 +597,17 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
           targetPrice: Number(aiData.targetPrice) || stock.livePrice * 1.1,
           upside: (((Number(aiData.targetPrice) || stock.livePrice * 1.1) - stock.livePrice) / stock.livePrice) * 100
         });
-      } catch (e) {
+      } catch (e: any) {
         console.error('Analysis failed:', e);
+        // Set a fallback state so the UI doesn't crash and shows the error
+        setAnalysis({
+          rsi: 0, sma50: 0, resistance: 0, support: 0, trend: 'Unknown',
+          sentiment: 'ERROR',
+          recommendation: 'RETRY',
+          strategy: `Analysis failed: ${e.message}`,
+          targetPrice: stock.livePrice,
+          upside: 0
+        });
       } finally {
         setLoading(false);
       }

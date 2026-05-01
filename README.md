@@ -1,81 +1,94 @@
-# Thunder Tracker Pro - EGX Dashboard
+# Thunder Pro: EGX Intelligence Portfolio Tracker
 
-A professional, real-time portfolio tracking dashboard designed specifically for traders on the Egyptian Exchange (EGX) using the Thndr brokerage app. It features a premium dark-mode UI, live price synchronization via a Data Consensus Engine, and advanced financial analytics.
+Thunder Pro is a high-performance, real-time portfolio management system specifically designed for the Egyptian Stock Exchange (EGX). It combines institutional-grade market data with Google Gemini AI to provide deep insights, automated technical analysis, and transaction tracking.
 
-## 🚀 Features
+## 🚀 System Architecture
 
-*   **Real-Time Live Sync Engine**: Automatically fetches and updates live stock prices every 60 seconds without refreshing the page. Includes a manual "Live Sync" trigger button.
-*   **Data Consensus Engine**: A sophisticated Node.js backend proxy that fetches data from multiple APIs simultaneously (TradingView as Primary, Yahoo Finance as Fallback). It calculates price variances and automatically rejects highly inaccurate `.CA` data from Yahoo Finance, ensuring your dashboard always matches Thndr perfectly.
-*   **Cash Waterfall Logic**: Tracks Total Deposited, Wallet Balance, Fees Paid, and dynamically calculates Free vs. Reserved Cash based on pending orders.
-*   **Precision Portfolio Analytics**: Calculates total invested capital, real-time market value, unrealized P&L in exact EGP, and P&L percentages with 4-decimal precision for exact cost basis matching.
-*   **Interactive Visualizations**: Powered by `recharts` to render a Portfolio Allocation Donut Chart, P&L Bar Chart, and Invested vs. Market Value comparisons.
-*   **Premium Aesthetic**: Glassmorphism elements, monospace numeric typography for readability, and dynamic red/green color coding.
+The application follows a modern, decoupled architecture with a lightweight proxy layer to bridge client-side interactions with external financial and AI services.
 
-## 🛠️ Tech Stack
+### 1. Frontend Layer (React & Vite)
+- **Single Page Application (SPA)** built with React 19 and TypeScript.
+- **Reactive State Management**: Handles real-time portfolio recalculations and live price streaming.
+- **Persistence**: Transactions are persisted locally using `localStorage` for privacy and offline access.
+- **Visualization**: Powered by `Recharts` for sophisticated technical analysis charts (Area, Bar, and Pie charts).
 
-*   **Frontend**: React 18, TypeScript
-*   **Build Tool / Backend Proxy**: Vite
-*   **Styling**: Vanilla CSS with custom CSS variables (Dark Theme)
-*   **Charting**: Recharts
-*   **Icons**: Lucide React
-*   **APIs**: TradingView Scanner API, Yahoo Finance API (`yahoo-finance2`)
+### 2. Integration Layer (Vite Dev Proxy)
+The system uses a custom middleware integrated directly into the Vite development server to handle API orchestration and security:
+- **Quote Aggregator**: Merges data from TradingView and Yahoo Finance to ensure maximum ticker coverage for EGX stocks.
+- **AI Gateway**: Bridges the frontend with the Google Gemini 3 Flash model, handling prompt engineering and response standardization.
+- **Historical Engine**: Fetches and formats technical time-series data for the charting engine.
 
-## 🏗️ Project Architecture
+### 3. External Data Providers
+- **TradingView**: Primary source for real-time EGX scanner data and sector classification.
+- **Yahoo Finance**: Secondary source for historical price data and asset metadata.
+- **Google Gemini API**: Generative AI engine used for neural-based market forecasting.
 
-```text
-/
-├── index.html              # Entry point
-├── vite.config.ts          # Vite config & Data Consensus Backend Proxy
-├── src/
-│   ├── main.tsx            # React DOM mounting
-│   ├── App.tsx             # Main Dashboard Component & State Management
-│   ├── App.css             # Component-specific layout styling
-│   └── index.css           # Global design tokens, CSS variables, and typography
-```
+---
 
-## 🧠 How the Data Consensus Engine Works
+## 🛠️ Technology Stack
 
-Because the EGX market has historically poor data coverage on standard free APIs, this project uses a custom middleware inside `vite.config.ts`:
+| Category | Technology |
+| :--- | :--- |
+| **Framework** | [React 19](https://react.dev/) |
+| **Build Tool** | [Vite 8](https://vitejs.dev/) |
+| **Language** | [TypeScript](https://www.typescriptlang.org/) |
+| **Styling** | Vanilla CSS (Modern CSS Variables & Grid) |
+| **Charts** | [Recharts](https://recharts.org/) |
+| **Icons** | [Lucide React](https://lucide.dev/) |
+| **AI Engine** | Google Gemini 3 Flash Preview |
+| **Market Data** | TradingView & Yahoo Finance |
 
-1.  **Request**: The React frontend sends a `POST /api/quote` request containing the list of tickers.
-2.  **Primary Source (TradingView)**: The proxy formats the tickers to `EGX:TICKER` and queries the TradingView Scanner API, which is highly accurate.
-3.  **Secondary Source (Yahoo Finance)**: The proxy simultaneously queries `yahoo-finance2` using the `TICKER.CA` format.
-4.  **Evaluation**: The engine compares both prices. If Yahoo Finance's price deviates by more than 10% from TradingView (which happens frequently), it logs a warning and forcefully rejects the Yahoo data.
-5.  **Response**: The clean, verified data is sent back to the React app to render the table.
+---
 
-## ⚙️ How to Run
+## 🧩 Core Components
 
-1.  **Install Dependencies**:
-    ```bash
-    npm install
-    ```
-2.  **Start the Development Server**:
-    ```bash
-    npm run dev
-    ```
-3.  **View the Dashboard**:
-    Open `http://localhost:5173/` in your browser.
+### 📈 Portfolio Dashboard
+The central hub for financial overview. It calculates:
+- **Equity**: Total market value of current holdings.
+- **Unrealized P&L**: Profit/Loss based on live prices vs. average cost.
+- **Wallet**: Available cash balance updated by deposits, withdrawals, and dividends.
 
-## 🎛️ Customizing the Portfolio
+### 🧠 AI Intelligence Reports
+The standout feature that generates deep neural analysis for any holding. It provides:
+- **Directional Sentiment**: (e.g., Aggressive Bullish, Neutral).
+- **Target Price Forecasting**: 3-month outlook powered by Gemini.
+- **Automated Technicals**: RSI (Relative Strength Index) and SMA50 (50-Day Moving Average) calculation.
+- **Actionable Narratives**: 3-4 sentences of institutional-grade strategic advice.
 
-To add, remove, or adjust your holdings, open `src/App.tsx` and locate the `INITIAL_HOLDINGS` array:
+### 🕒 Transaction Engine
+A robust system for recording financial history:
+- Support for **Buy, Sell, Deposit, Withdraw,** and **Dividend** events.
+- Automatic cost-basis adjustment (Weighted Average Cost).
+- Smart ticker search with real-time EGX suggestions.
 
-```javascript
-const INITIAL_HOLDINGS = [
-  { 
-    ticker: 'SWDY', 
-    company: 'Elsewedy Electric', 
-    sector: 'Electrical', 
-    shares: 121, 
-    avgCost: 87.1336,       // Average cost including fees (4 decimals)
-    totalCost: 10543.16,    // Exact total EGP paid
-    livePrice: 87.1336      // Fallback price before first sync
-  },
-  // ... add new objects here
-];
-```
+### 📊 Advanced Charting
+Interactive modals that display:
+- **Multi-range timeframes**: (1D, 1W, 1M, 3M, 1Y, 5Y).
+- **Dynamic Gradients**: Visual P&L indicators based on price movement.
+- **Real-time Tooltips**: Precision data points for price action analysis.
 
-You can also update your global financials at the top of `App.tsx`:
-*   `WALLET_BALANCE`: Your current free cash.
-*   `TOTAL_DEPOSITED`: Total cash transferred to the brokerage.
-*   `TOTAL_FEES_PAID`: Lifetime fees paid.
+---
+
+## ⚙️ Setup & Installation
+
+1. **Environment Variables**:
+   Create a `.env` file in the root directory:
+   ```env
+   VITE_GEMINI_API_KEY=your_google_ai_key_here
+   ```
+
+2. **Run Development Server**:
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+3. **Production Build**:
+   ```bash
+   npm run build
+   ```
+
+---
+
+## 🔒 Security & Privacy
+Thunder Pro is designed as a **Client-First** application. Your transaction history and portfolio data never leave your browser, except when being passed through the secure proxy for AI analysis. All data remains stored in your local browser environment.
