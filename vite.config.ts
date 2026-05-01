@@ -145,13 +145,13 @@ export default defineConfig(({ mode }) => {
                   Analyze the following stocks and provide professional insights for each.
                   
                   DATA:
-                  ${stocks.map((s:any) => `
-                  STOCKED: ${s.company} (${s.ticker})
-                  - Price: EGP ${s.stats.currentPrice}
-                  - RSI: ${s.stats.rsi}
-                  - SMA50: ${s.stats.sma50}
-                  - Support/Resistance: ${s.stats.support} / ${s.stats.resistance}
-                  - Recent Close: ${s.history.slice(-5).map((h:any)=>h.close).join(', ')}
+                  ${(stocks || []).map((s:any) => `
+                  STOCKED: ${s?.company} (${s?.ticker})
+                  - Price: EGP ${s?.stats?.currentPrice || 'N/A'}
+                  - RSI: ${s?.stats?.rsi || 'N/A'}
+                  - SMA50: ${s?.stats?.sma50 || 'N/A'}
+                  - Support/Resistance: ${s?.stats?.support || 'N/A'} / ${s?.stats?.resistance || 'N/A'}
+                  - Recent Close: ${(s?.history || []).slice(-5).map((h:any)=>h.close).join(', ')}
                   `).join('\n')}
 
                   For EACH stock, provide:
