@@ -201,17 +201,27 @@ function App() {
           })
         });
         const aiData = await aiRes.json();
-        newAnalytics[h.ticker] = {
-          sentiment: aiData.sentiment,
-          recommendation: aiData.recommendation,
-          targetPrice: aiData.targetPrice,
-          rsi: rsi.toFixed(1)
-        };
+        
+        if (!aiRes.ok) {
+          if (aiData.code === 'RESOURCE_EXHAUSTED') {
+            newAnalytics[h.ticker] = { sentiment: 'RATE LIMIT', recommendation: 'WAIT', targetPrice: '-', rsi: rsi.toFixed(1) };
+          } else {
+            newAnalytics[h.ticker] = { sentiment: 'ERROR', recommendation: 'RETRY', targetPrice: '-', rsi: rsi.toFixed(1) };
+          }
+        } else {
+          newAnalytics[h.ticker] = {
+            sentiment: aiData.sentiment,
+            recommendation: aiData.recommendation,
+            targetPrice: aiData.targetPrice,
+            rsi: rsi.toFixed(1)
+          };
+        }
+
         setAnalyticsData({ ...newAnalytics });
         localStorage.setItem('thndr_analytics', JSON.stringify(newAnalytics));
         
-        // Short delay to prevent rate limiting
-        await new Promise(r => setTimeout(r, 500));
+        // Significant delay (4s) to prevent 'Resource Exhausted' on free tier
+        await new Promise(r => setTimeout(r, 4000));
       } catch (e) {
         console.error(`Failed to analyze ${h.ticker}`, e);
       }
