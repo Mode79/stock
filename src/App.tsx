@@ -642,6 +642,10 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
       } finally {
         setLoading(false);
       }
+    };
+    generateAnalysis();
+  }, [stock]);
+
   const [lang, setLang] = useState<'en' | 'ar'>('en');
 
   const t = {
@@ -696,10 +700,6 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
       dir: 'rtl'
     }
   }[lang];
-
-  useEffect(() => {
-    generateAnalysis();
-  }, [stock]);
 
   return (
     <div className="modal-overlay">
