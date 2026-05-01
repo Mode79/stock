@@ -318,25 +318,25 @@ function App() {
                     <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     <td style={{ textAlign: 'center' }}>
                       {analyticsData[h.ticker] ? (
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: analyticsData[h.ticker].sentiment.includes('BULL') ? 'var(--color-green)' : analyticsData[h.ticker].sentiment.includes('SELL') ? 'var(--color-red)' : 'var(--color-yellow)' }}>
-                          {analyticsData[h.ticker].sentiment}
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: (analyticsData[h.ticker]?.sentiment || '').includes('BULL') ? 'var(--color-green)' : (analyticsData[h.ticker]?.sentiment || '').includes('SELL') ? 'var(--color-red)' : 'var(--color-yellow)' }}>
+                          {analyticsData[h.ticker]?.sentiment || '-'}
                         </span>
                       ) : '-'}
                     </td>
                     <td className="mono" style={{ textAlign: 'right', fontSize: '0.8rem' }}>
-                      {analyticsData[h.ticker] ? `EGP ${analyticsData[h.ticker].targetPrice}` : '-'}
+                      {analyticsData[h.ticker]?.targetPrice ? `EGP ${analyticsData[h.ticker].targetPrice}` : '-'}
                     </td>
                     <td style={{ textAlign: 'center' }}>
                       {analyticsData[h.ticker] ? (
-                        <span style={{ fontSize: '0.75rem', color: analyticsData[h.ticker].rsi > 70 ? 'var(--color-red)' : analyticsData[h.ticker].rsi < 30 ? 'var(--color-green)' : 'var(--text-muted)' }}>
-                          {analyticsData[h.ticker].rsi}
+                        <span style={{ fontSize: '0.75rem', color: (analyticsData[h.ticker]?.rsi || 50) > 70 ? 'var(--color-red)' : (analyticsData[h.ticker]?.rsi || 50) < 30 ? 'var(--color-green)' : 'var(--text-muted)' }}>
+                          {analyticsData[h.ticker]?.rsi || '-'}
                         </span>
                       ) : '-'}
                     </td>
                     <td style={{ textAlign: 'center' }}>
                       {analyticsData[h.ticker] ? (
-                        <span className={`badge ${analyticsData[h.ticker].recommendation.includes('BUY') || analyticsData[h.ticker].recommendation.includes('ACCUMULATE') ? 'badge-green' : analyticsData[h.ticker].recommendation.includes('SELL') ? 'badge-red' : 'badge-yellow'}`}>
-                          {analyticsData[h.ticker].recommendation}
+                        <span className={`badge ${(analyticsData[h.ticker]?.recommendation || '').includes('BUY') || (analyticsData[h.ticker]?.recommendation || '').includes('ACCUMULATE') ? 'badge-green' : (analyticsData[h.ticker]?.recommendation || '').includes('SELL') ? 'badge-red' : 'badge-yellow'}`}>
+                          {analyticsData[h.ticker]?.recommendation || '-'}
                         </span>
                       ) : '-'}
                     </td>
