@@ -217,12 +217,12 @@ function App() {
       const finalAnalytics: Record<string, any> = { ...analyticsData };
       
       // AI results can sometimes be wrapped in a key like 'stocks' or 'analysis'
-      const results = aiResults.stocks || aiResults.analysis || aiResults;
+      const aiProcessed = aiResults.stocks || aiResults.analysis || aiResults;
 
       batchData.forEach(s => {
         const ticker = s.ticker.toUpperCase();
         // Try exact match or case-insensitive match
-        const ai = results[ticker] || results[ticker.toLowerCase()] || {};
+        const ai = aiProcessed[ticker] || aiProcessed[ticker.toLowerCase()] || {};
         
         finalAnalytics[ticker] = {
           sentiment: ai.sentiment || 'NEUTRAL',
