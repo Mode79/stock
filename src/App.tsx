@@ -230,9 +230,15 @@ function App() {
 
       batchData.forEach(s => {
         const ticker = s.ticker.toUpperCase();
-        // Try exact match or case-insensitive match
-        const ai = aiResultsProcessed[ticker] || aiResultsProcessed[ticker.toLowerCase()] || {};
         
+        // Find the best match in the AI results (case-insensitive and partial match)
+        const aiKey = Object.keys(aiResultsProcessed).find(k => 
+          k.toUpperCase() === ticker || 
+          k.toUpperCase().includes(ticker) ||
+          ticker.includes(k.toUpperCase())
+        );
+
+        const ai = aiKey ? aiResultsProcessed[aiKey] : {};
         const currentPrice = s.stats?.currentPrice ? parseFloat(s.stats.currentPrice) : 0;
 
         finalAnalytics[ticker] = {
