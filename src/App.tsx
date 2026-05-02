@@ -170,32 +170,38 @@ function App() {
     setAnalyzingTicker('All Stocks');
     
     try {
-      const batchData = [];
-      
-      // 1. Collect technical data for all stocks
-      for (const h of holdings) {
-        const resHistory = await fetch(`/api/history?symbol=${h.ticker}&range=6m`);
-        const history = await resHistory.json();
-        if (!history || history.length < 20) continue;
+      // 1. Collect technical data for all stocks in parallel
+      const results = await Promise.all(holdings.map(async h => {
+        try {
+          const resHistory = await fetch(`/api/history?symbol=${h.ticker}&range=6m`);
+          const history = await resHistory.json();
+          if (!history || history.length < 20) return null;
 
-        let gains = 0, losses = 0;
-        for (let i = history.length - 14; i < history.length; i++) {
-          const diff = history[i].close - history[i-1].close;
-          if (diff > 0) gains += diff; else losses -= diff;
+          let gains = 0, losses = 0;
+          for (let i = history.length - 14; i < history.length; i++) {
+            const diff = history[i].close - history[i-1].close;
+            if (diff > 0) gains += diff; else losses -= diff;
+          }
+          const rs = (gains / 14) / (losses / 14 || 1);
+          const rsi = 100 - (100 / (1 + rs));
+          const sma50 = (history.slice(-50).reduce((a:any, b:any) => a + b.close, 0) / Math.min(history.length, 50)).toFixed(2);
+          const resistance = Math.max(...history.map((q:any)=>q.close)).toFixed(2);
+          const support = Math.min(...history.map((q:any)=>q.close)).toFixed(2);
+
+          return {
+            ticker: h.ticker,
+            company: h.company,
+            history: history.slice(-10),
+            stats: { currentPrice: h.livePrice, rsi: rsi.toFixed(1), sma50, resistance, support }
+          };
+        } catch (e) {
+          console.error(`Failed technicals for ${h.ticker}`, e);
+          return null;
         }
-        const rs = (gains / 14) / (losses / 14 || 1);
-        const rsi = 100 - (100 / (1 + rs));
-        const sma50 = (history.slice(-50).reduce((a:any, b:any) => a + b.close, 0) / Math.min(history.length, 50)).toFixed(2);
-        const resistance = Math.max(...history.map((q:any)=>q.close)).toFixed(2);
-        const support = Math.min(...history.map((q:any)=>q.close)).toFixed(2);
+      }));
 
-        batchData.push({
-          ticker: h.ticker,
-          company: h.company,
-          history: history.slice(-10),
-          stats: { currentPrice: h.livePrice, rsi: rsi.toFixed(1), sma50, resistance, support }
-        });
-      }
+      const batchData = results.filter(r => r !== null);
+      if (batchData.length === 0) throw new Error('No stocks were ready for analysis');
 
       // 2. Call Batch AI Endpoint
       const aiRes = await fetch('/api/ai-analyze-batch', {

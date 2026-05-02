@@ -177,7 +177,13 @@ export default defineConfig(({ mode }) => {
                   let aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
                   console.log('[Batch AI Raw Response]:', aiText);
                   
-                  if (aiText.includes('```')) aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+                  // Aggressive JSON cleaning
+                  if (aiText.includes('```')) {
+                    const match = aiText.match(/```json\s*([\s\S]*?)\s*```/) || aiText.match(/```\s*([\s\S]*?)\s*```/);
+                    if (match) aiText = match[1];
+                    else aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+                  }
+                  aiText = aiText.trim();
                   
                   res.setHeader('Content-Type', 'application/json');
                   res.end(aiText);
