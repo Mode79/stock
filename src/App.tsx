@@ -322,7 +322,7 @@ function App() {
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button className="btn-secondary" onClick={() => setIsSettingsOpen(true)}>
-            <Settings size={18} />
+            <SettingsIcon size={18} />
             <span>Settings</span>
           </button>
           <button className="btn-secondary" onClick={fetchLivePrices} disabled={isUpdating}>
@@ -343,7 +343,7 @@ function App() {
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div className="icon-circle" style={{ background: 'var(--color-blue-dark)', color: 'var(--color-blue)' }}>
-                  <Settings size={20} />
+                  <SettingsIcon size={20} />
                 </div>
                 <div>
                   <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>AI Intelligence Settings</h2>
