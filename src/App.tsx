@@ -233,13 +233,15 @@ function App() {
         // Try exact match or case-insensitive match
         const ai = aiResultsProcessed[ticker] || aiResultsProcessed[ticker.toLowerCase()] || {};
         
+        const currentPrice = s.stats?.currentPrice ? parseFloat(s.stats.currentPrice) : 0;
+
         finalAnalytics[ticker] = {
           sentiment: ai.sentiment || 'NEUTRAL',
           sentiment_ar: ai.sentiment_ar || 'حيادي',
           recommendation: ai.recommendation || 'HOLD',
           recommendation_ar: ai.recommendation_ar || 'انتظار',
-          targetPrice: ai.targetPrice || (parseFloat(s.stats.currentPrice) * 1.1).toFixed(2),
-          rsi: s.stats.rsi
+          targetPrice: ai.targetPrice || (currentPrice * 1.1).toFixed(2),
+          rsi: s.stats?.rsi || '-'
         };
       });
 

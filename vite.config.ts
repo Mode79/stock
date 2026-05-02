@@ -68,11 +68,11 @@ export default defineConfig(({ mode }) => {
 
                   const prompt = `Act as a Senior Institutional Portfolio Manager specializing in the Egyptian Stock Exchange (EGX). 
                   Analyze the following data for ${company} (${ticker}):
-                  - Current Price: EGP ${stats.currentPrice}
-                  - RSI (14): ${stats.rsi}
-                  - 50-Day Moving Average: EGP ${stats.sma50}
-                  - 6-Month High/Low: ${stats.resistance} / ${stats.support}
-                  - Last 10 days Close Prices: ${history.slice(-10).map((h:any) => h.close).join(', ')}
+                  - Current Price: EGP ${stats?.currentPrice || 'N/A'}
+                  - RSI (14): ${stats?.rsi || 'N/A'}
+                  - 50-Day Moving Average: EGP ${stats?.sma50 || 'N/A'}
+                  - 6-Month High/Low: ${stats?.resistance || 'N/A'} / ${stats?.support || 'N/A'}
+                  - Last 10 days Close Prices: ${(history || []).slice(-10).map((h:any) => h.close).join(', ')}
 
                   Provide a professional, directional, and highly insightful analysis in BOTH English and Arabic.
                   
