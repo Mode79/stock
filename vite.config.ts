@@ -175,6 +175,8 @@ export default defineConfig(({ mode }) => {
                   if (geminiData.error) throw new Error(geminiData.error.message);
                   
                   let aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+                  console.log('[Batch AI Raw Response]:', aiText);
+                  
                   if (aiText.includes('```')) aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
                   
                   res.setHeader('Content-Type', 'application/json');

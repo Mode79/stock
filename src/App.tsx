@@ -209,14 +209,21 @@ function App() {
       
       // 3. Merge with technicals
       const finalAnalytics: Record<string, any> = { ...analyticsData };
+      
+      // AI results can sometimes be wrapped in a key like 'stocks' or 'analysis'
+      const results = aiResults.stocks || aiResults.analysis || aiResults;
+
       batchData.forEach(s => {
-        const ai = aiResults[s.ticker] || {};
-        finalAnalytics[s.ticker] = {
+        const ticker = s.ticker.toUpperCase();
+        // Try exact match or case-insensitive match
+        const ai = results[ticker] || results[ticker.toLowerCase()] || {};
+        
+        finalAnalytics[ticker] = {
           sentiment: ai.sentiment || 'NEUTRAL',
           sentiment_ar: ai.sentiment_ar || 'حيادي',
           recommendation: ai.recommendation || 'HOLD',
           recommendation_ar: ai.recommendation_ar || 'انتظار',
-          targetPrice: ai.targetPrice || s.stats.currentPrice * 1.1,
+          targetPrice: ai.targetPrice || (s.stats.currentPrice * 1.1).toFixed(2),
           rsi: s.stats.rsi
         };
       });
