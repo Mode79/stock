@@ -225,13 +225,13 @@ function App() {
       
       // 3. Merge with technicals
       const finalAnalytics: Record<string, any> = { ...analyticsData };
-      const results = aiResults.stocks || aiResults.analysis || aiResults;
-      console.log('[Frontend] Parsed Results:', results);
+      const aiResultsProcessed = aiResults.stocks || aiResults.analysis || aiResults;
+      console.log('[Frontend] Parsed Results:', aiResultsProcessed);
 
       batchData.forEach(s => {
         const ticker = s.ticker.toUpperCase();
         // Try exact match or case-insensitive match
-        const ai = results[ticker] || results[ticker.toLowerCase()] || {};
+        const ai = aiResultsProcessed[ticker] || aiResultsProcessed[ticker.toLowerCase()] || {};
         
         finalAnalytics[ticker] = {
           sentiment: ai.sentiment || 'NEUTRAL',
