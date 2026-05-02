@@ -6,9 +6,41 @@ const yf = new (YahooFinanceClass as any)({ suppressNotices: ['yahooSurvey'] });
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const GEMINI_KEY = env.VITE_GEMINI_API_KEY || '';
+  const GEMINI_KEY_ENV = env.VITE_GEMINI_API_KEY || '';
+  const OPENAI_KEY_ENV = env.VITE_OPENAI_API_KEY || '';
 
-  return {
+  async function callAI(provider: string, model: string, key: string, prompt: string) {
+    if (provider === 'openai') {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key || OPENAI_KEY_ENV}`
+        },
+        body: JSON.stringify({
+          model: model || 'gpt-4o',
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' }
+        })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      return data.choices[0].message.content;
+    } else {
+      // Gemini
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-2.5-flash'}:generateContent?key=${key || GEMINI_KEY_ENV}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { response_mime_type: "application/json" }
+        })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    }
+  }
     plugins: [
       react(),
       {
@@ -54,17 +86,16 @@ export default defineConfig(({ mode }) => {
               }
             }
 
-            // 2. AI ANALYZE ENDPOINT (Google Gemini Integration)
+            // 2. AI ANALYZE ENDPOINT
             if (req.method === 'POST' && url.includes('ai-analyze')) {
               let body = '';
               req.on('data', chunk => body += chunk.toString());
               req.on('end', async () => {
                 try {
                   const { ticker, company, history, stats } = JSON.parse(body);
-                  
-                  if (!GEMINI_KEY) {
-                    throw new Error('Gemini API Key missing in .env');
-                  }
+                  const provider = req.headers['x-ai-provider'] as string || 'gemini';
+                  const model = req.headers['x-ai-model'] as string;
+                  const key = req.headers['x-ai-key'] as string;
 
                   const prompt = `Act as a Senior Institutional Portfolio Manager specializing in the Egyptian Stock Exchange (EGX). 
                   Analyze the following data for ${company} (${ticker}):
@@ -75,40 +106,15 @@ export default defineConfig(({ mode }) => {
                   - Last 10 days Close Prices: ${(history || []).slice(-10).map((h:any) => h.close).join(', ')}
 
                   Provide a professional, directional, and highly insightful analysis in BOTH English and Arabic.
+                  Format your response as a valid JSON object with these keys: "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "narrative", "narrative_ar", "targetPrice". 
+                  Return ONLY the JSON. No markdown.`;
+
+                  let aiText = await callAI(provider, model, key, prompt);
                   
-                  Include:
-                  1. "sentiment" and "sentiment_ar" (e.g., Aggressive Bullish / متفائل بقوة).
-                  2. "recommendation" and "recommendation_ar" (e.g., Buy / شراء).
-                  3. "narrative" and "narrative_ar" (3-4 sentences explaining the situation).
-                  4. "targetPrice" for the next 3 months.
-
-                  IMPORTANT: Format your response as a valid JSON object with these keys: "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "narrative", "narrative_ar", "targetPrice". 
-                  Do not include any markdown formatting or extra text outside the JSON.`;
-
-                  const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      contents: [{ parts: [{ text: prompt }] }],
-                      generationConfig: { response_mime_type: "application/json" }
-                    })
-                  });
-
-                  const geminiData = await geminiRes.json();
-                  
-                  if (geminiData.error) {
-                    console.error('[Gemini Error]', geminiData.error);
-                    const status = geminiRes.status;
-                    res.writeHead(status).end(JSON.stringify({ 
-                      error: geminiData.error.message, 
-                      code: geminiData.error.status 
-                    }));
-                    return;
-                  }
-
-                  let aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
                   if (aiText.includes('```')) {
-                    aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+                    const match = aiText.match(/```json\s*([\s\S]*?)\s*```/) || aiText.match(/```\s*([\s\S]*?)\s*```/);
+                    if (match) aiText = match[1];
+                    else aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
                   }
 
                   const parsed = JSON.parse(aiText);
@@ -119,7 +125,7 @@ export default defineConfig(({ mode }) => {
                     recommendation_ar: parsed.recommendation_ar || 'انتظار',
                     narrative: parsed.narrative || parsed.Narrative || parsed.strategy || parsed.Strategy || parsed.deepNarrative || 'Analysis generation failed.',
                     narrative_ar: parsed.narrative_ar || 'فشل توليد التحليل باللغة العربية.',
-                    targetPrice: parsed.targetPrice || parsed.TargetPrice || stats.currentPrice * 1.1
+                    targetPrice: parsed.targetPrice || parsed.TargetPrice || (stats?.currentPrice || 0) * 1.1
                   };
                   
                   res.setHeader('Content-Type', 'application/json');
@@ -139,11 +145,12 @@ export default defineConfig(({ mode }) => {
               req.on('end', async () => {
                 try {
                   const { stocks } = JSON.parse(body);
-                  if (!GEMINI_KEY) throw new Error('Gemini API Key missing');
+                  const provider = req.headers['x-ai-provider'] as string || 'gemini';
+                  const model = req.headers['x-ai-model'] as string;
+                  const key = req.headers['x-ai-key'] as string;
 
                   const prompt = `Act as a Senior Institutional Portfolio Manager for EGX. 
                   Analyze the following stocks and provide professional insights for each.
-                  
                   DATA:
                   ${(stocks || []).map((s:any) => `
                   STOCKED: ${s?.company} (${s?.ticker})
@@ -154,44 +161,20 @@ export default defineConfig(({ mode }) => {
                   - Recent Close: ${(s?.history || []).map((h:any)=>h.close).join(', ')}
                   `).join('\n')}
 
-                  For EACH stock, provide:
-                  - "sentiment" (English and Arabic)
-                  - "recommendation" (English and Arabic)
-                  - "targetPrice" (next 3 months)
-
                   Format the output as a SINGLE JSON object where keys are EXACTLY the ticker symbols and values are objects with:
                   "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "targetPrice".
                   Return ONLY the JSON. No markdown.`;
 
-                  console.log('[Batch AI Request Prompt]:', prompt);
-
-                  const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      contents: [{ parts: [{ text: prompt }] }],
-                      generationConfig: { response_mime_type: "application/json" }
-                    })
-                  });
-                  const geminiData = await geminiRes.json();
-                  if (geminiData.error) {
-                    console.error('[Batch AI Gemini Error]:', geminiData.error);
-                    throw new Error(geminiData.error.message);
-                  }
+                  let aiText = await callAI(provider, model, key, prompt);
                   
-                  let aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-                  console.log('[Batch AI Raw Response]:', aiText);
-                  
-                  // Aggressive JSON cleaning
                   if (aiText.includes('```')) {
                     const match = aiText.match(/```json\s*([\s\S]*?)\s*```/) || aiText.match(/```\s*([\s\S]*?)\s*```/);
                     if (match) aiText = match[1];
                     else aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
                   }
-                  aiText = aiText.trim();
                   
                   res.setHeader('Content-Type', 'application/json');
-                  res.end(aiText);
+                  res.end(aiText.trim());
                 } catch (e: any) {
                   res.writeHead(500).end(JSON.stringify({ error: e.message }));
                 }

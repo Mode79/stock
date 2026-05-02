@@ -6,7 +6,7 @@ import {
 import { 
   ArrowUpRight, ArrowDownRight, RefreshCw, AlertTriangle, 
   Wallet, DollarSign, Activity, CheckCircle2, Clock, Plus, Trash2, X, Search, TrendingUp,
-  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert
+  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Settings as SettingsIcon
 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line } from 'recharts';
 import './index.css';
@@ -69,6 +69,22 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [historyStock, setHistoryStock] = useState<string | null>(null);
   const [analysisStock, setAnalysisStock] = useState<Holding | null>(null);
+  
+  // AI Settings
+  const [aiSettings, setAiSettings] = useState(() => {
+    const saved = localStorage.getItem('thndr_ai_settings');
+    return saved ? JSON.parse(saved) : {
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      geminiKey: '',
+      openaiKey: '',
+    };
+  });
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('thndr_ai_settings', JSON.stringify(aiSettings));
+  }, [aiSettings]);
 
   useEffect(() => {
     localStorage.setItem('thndr_tx_v3', JSON.stringify(transactions));
@@ -206,7 +222,12 @@ function App() {
       // 2. Call Batch AI Endpoint
       const aiRes = await fetch('/api/ai-analyze-batch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-AI-Provider': aiSettings.provider,
+          'X-AI-Model': aiSettings.model,
+          'X-AI-Key': aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey
+        },
         body: JSON.stringify({ stocks: batchData })
       });
       
@@ -299,20 +320,109 @@ function App() {
           <Activity className="text-blue" size={24} />
           <h2>Thunder Pro <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>EGX LIVE</span></h2>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <button className="btn" onClick={() => setIsModalOpen(true)} style={{ background: 'var(--color-blue)', color: 'white', border: 'none' }}>
-            <Plus size={16} /> New Transaction
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn-secondary" onClick={() => setIsSettingsOpen(true)}>
+            <Settings size={18} />
+            <span>Settings</span>
           </button>
-          <button className="btn" onClick={updateAllAnalytics} disabled={isAnalyzingAll}>
-            <Brain size={16} className={isAnalyzingAll ? 'spinning' : ''} />
-            {isAnalyzingAll ? `Analyzing ${analyzingTicker}...` : 'Update Analytics'}
+          <button className="btn-secondary" onClick={fetchLivePrices} disabled={isUpdating}>
+            <RefreshCw size={18} className={isUpdating ? 'spinning' : ''} />
+            <span>Sync</span>
           </button>
-          <button className="btn" onClick={fetchLivePrices} disabled={isUpdating}>
-            <RefreshCw size={16} className={isUpdating ? 'spinning' : ''} />
-            Sync
+          <button className="btn-primary" onClick={updateAllAnalytics} disabled={isAnalyzingAll}>
+            <Brain size={18} className={isAnalyzingAll ? 'spinning' : ''} />
+            <span>{isAnalyzingAll ? 'Analyzing...' : 'Update Analytics'}</span>
           </button>
         </div>
       </header>
+
+      {/* --- SETTINGS MODAL --- */}
+      {isSettingsOpen && (
+        <div className="modal-overlay" onClick={() => setIsSettingsOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: '500px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div className="icon-circle" style={{ background: 'var(--color-blue-dark)', color: 'var(--color-blue)' }}>
+                  <Settings size={20} />
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>AI Intelligence Settings</h2>
+                  <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)' }}>Configure your analysis engine</p>
+                </div>
+              </div>
+              <button className="btn-icon" onClick={() => setIsSettingsOpen(false)}><X size={20} /></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '20px' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600 }}>AI Provider</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <button 
+                    className={aiSettings.provider === 'gemini' ? 'btn-primary' : 'btn-secondary'} 
+                    onClick={() => setAiSettings({...aiSettings, provider: 'gemini', model: 'gemini-2.5-flash'})}
+                  >
+                    Google Gemini
+                  </button>
+                  <button 
+                    className={aiSettings.provider === 'openai' ? 'btn-primary' : 'btn-secondary'} 
+                    onClick={() => setAiSettings({...aiSettings, provider: 'openai', model: 'gpt-4o'})}
+                  >
+                    OpenAI ChatGPT
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600 }}>Model Selection</label>
+                <select 
+                  className="input-field" 
+                  style={{ width: '100%', background: 'var(--color-bg-light)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', padding: '10px', borderRadius: '8px' }}
+                  value={aiSettings.model}
+                  onChange={(e) => setAiSettings({...aiSettings, model: e.target.value})}
+                >
+                  {aiSettings.provider === 'gemini' ? (
+                    <>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fastest)</option>
+                      <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                      <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Most Powerful)</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="gpt-4o">GPT-4o (Omni)</option>
+                      <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                      <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600 }}>
+                  {aiSettings.provider === 'gemini' ? 'Gemini API Key' : 'OpenAI API Key'}
+                </label>
+                <input 
+                  type="password"
+                  className="input-field"
+                  style={{ width: '100%', background: 'var(--color-bg-light)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', padding: '10px', borderRadius: '8px' }}
+                  placeholder="Enter your API key (optional if set in server)"
+                  value={aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey}
+                  onChange={(e) => setAiSettings({
+                    ...aiSettings, 
+                    [aiSettings.provider === 'gemini' ? 'geminiKey' : 'openaiKey']: e.target.value
+                  })}
+                />
+                <p style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginTop: '6px' }}>
+                  Keys are stored locally in your browser.
+                </p>
+              </div>
+
+              <button className="btn-primary" style={{ width: '100%', marginTop: '10px' }} onClick={() => setIsSettingsOpen(false)}>
+                Save Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="main-content">
         <div className="grid-cards">
@@ -744,7 +854,12 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
         // 3. Call Real AI Endpoint
         const aiRes = await fetch('/api/ai-analyze', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-AI-Provider': aiSettings.provider,
+            'X-AI-Model': aiSettings.model,
+            'X-AI-Key': aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey
+          },
           body: JSON.stringify({
             ticker: stock.ticker,
             company: stock.company,
