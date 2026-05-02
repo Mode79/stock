@@ -151,7 +151,7 @@ export default defineConfig(({ mode }) => {
                   - RSI: ${s?.stats?.rsi || 'N/A'}
                   - SMA50: ${s?.stats?.sma50 || 'N/A'}
                   - Support/Resistance: ${s?.stats?.support || 'N/A'} / ${s?.stats?.resistance || 'N/A'}
-                  - Recent Close: ${(s?.history || []).slice(-5).map((h:any)=>h.close).join(', ')}
+                  - Recent Close: ${(s?.history || []).map((h:any)=>h.close).join(', ')}
                   `).join('\n')}
 
                   For EACH stock, provide:
@@ -161,7 +161,9 @@ export default defineConfig(({ mode }) => {
 
                   Format the output as a SINGLE JSON object where keys are EXACTLY the ticker symbols and values are objects with:
                   "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "targetPrice".
-                  Return ONLY the JSON.`;
+                  Return ONLY the JSON. No markdown.`;
+
+                  console.log('[Batch AI Request Prompt]:', prompt);
 
                   const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
                     method: 'POST',
@@ -172,7 +174,10 @@ export default defineConfig(({ mode }) => {
                     })
                   });
                   const geminiData = await geminiRes.json();
-                  if (geminiData.error) throw new Error(geminiData.error.message);
+                  if (geminiData.error) {
+                    console.error('[Batch AI Gemini Error]:', geminiData.error);
+                    throw new Error(geminiData.error.message);
+                  }
                   
                   let aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
                   console.log('[Batch AI Raw Response]:', aiText);

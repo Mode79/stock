@@ -210,38 +210,52 @@ function App() {
         body: JSON.stringify({ stocks: batchData })
       });
       
-      if (!aiRes.ok) throw new Error('Batch analysis failed');
-      const aiResults = await aiRes.json();
+      const responseText = await aiRes.text();
+      console.log('[Frontend] Raw Batch AI Response:', responseText);
+
+      if (!aiRes.ok) throw new Error(`Batch analysis failed: ${responseText}`);
+      
+      let aiResults;
+      try {
+        aiResults = JSON.parse(responseText);
+      } catch (e) {
+        console.error('[Frontend] Failed to parse AI JSON', e);
+        throw new Error('Invalid AI Response Format');
+      }
       
       // 3. Merge with technicals
       const finalAnalytics: Record<string, any> = { ...analyticsData };
-      
-      // AI results can sometimes be wrapped in a key like 'stocks' or 'analysis'
-      const aiProcessed = aiResults.stocks || aiResults.analysis || aiResults;
+      const results = aiResults.stocks || aiResults.analysis || aiResults;
+      console.log('[Frontend] Parsed Results:', results);
 
       batchData.forEach(s => {
         const ticker = s.ticker.toUpperCase();
         // Try exact match or case-insensitive match
-        const ai = aiProcessed[ticker] || aiProcessed[ticker.toLowerCase()] || {};
+        const ai = results[ticker] || results[ticker.toLowerCase()] || {};
         
         finalAnalytics[ticker] = {
           sentiment: ai.sentiment || 'NEUTRAL',
           sentiment_ar: ai.sentiment_ar || 'حيادي',
           recommendation: ai.recommendation || 'HOLD',
           recommendation_ar: ai.recommendation_ar || 'انتظار',
-          targetPrice: ai.targetPrice || (s.stats.currentPrice * 1.1).toFixed(2),
+          targetPrice: ai.targetPrice || (parseFloat(s.stats.currentPrice) * 1.1).toFixed(2),
           rsi: s.stats.rsi
         };
       });
 
       setAnalyticsData(finalAnalytics);
       localStorage.setItem('thndr_analytics', JSON.stringify(finalAnalytics));
-    } catch (e) {
-      console.error('Batch analysis failed', e);
+    } catch (e: any) {
+      console.error('[Frontend] Batch analysis failed', e);
       // Mark all as error if the whole batch fails
       const errorState: Record<string, any> = { ...analyticsData };
       holdings.forEach(h => {
-        errorState[h.ticker] = { sentiment: 'ERROR', recommendation: 'RETRY', targetPrice: '-', rsi: '-' };
+        errorState[h.ticker] = { 
+          sentiment: 'ERROR', 
+          recommendation: 'RETRY', 
+          targetPrice: '-', 
+          rsi: analyticsData[h.ticker]?.rsi || '-' 
+        };
       });
       setAnalyticsData(errorState);
     } finally {
