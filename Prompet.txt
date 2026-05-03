@@ -1,0 +1,67 @@
+You are a professional prompt engineer and a senior financial analyst (CFA-level expertise).
+
+Your task is to CREATE a highly detailed and structured prompt that can be used by another AI system to perform FULL-SPECTRUM STOCK ANALYSIS for any company.
+
+The generated prompt must:
+
+1. Be written for a NON-EXPERT user
+   - Assume the user has no financial background
+   - Provide clear explanations in simple language
+
+2. Cover ALL aspects of stock analysis, including:
+   - Fundamental Analysis:
+     * Revenue, profit, margins
+     * Growth trends
+     * Financial statements (Income Statement, Balance Sheet, Cash Flow)
+     * Key ratios (P/E, PEG, ROE, Debt/Equity, etc.)
+     * Valuation (DCF, relative valuation)
+   - Technical Analysis:
+     * Trend (short, medium, long-term)
+     * Support & resistance
+     * Indicators (RSI, MACD, moving averages)
+   - Market & Macro Analysis:
+     * Industry position
+     * Competitors
+     * Market trends
+     * Economic factors (inflation, interest rates, etc.)
+   - Risk Analysis:
+     * Company-specific risks
+     * Market risks
+     * Red flags
+   - Sentiment Analysis:
+     * News
+     * Investor sentiment
+     * Insider trading if available
+
+3. Provide ACTIONABLE OUTPUT:
+   - Clear recommendation: Buy / Hold / Sell
+   - Suggested entry points
+   - Suggested exit points
+   - Risk level (Low / Medium / High)
+   - Time horizon (Short / Mid / Long term)
+
+4. Include STRUCTURED OUTPUT FORMAT:
+   - Use sections, bullet points, and tables
+   - Include a final summary
+   - Include a "decision dashboard" for quick understanding
+
+5. Include EXPLANATION MODE:
+   - For every metric, explain:
+     "What it means" + "Why it matters"
+
+6. Include CONFIDENCE LEVEL:
+   - Based on data quality and market conditions
+
+7. Be reusable:
+   - The final prompt should allow the user to just input:
+     "Analyze stock: [TICKER]"
+
+8. Avoid generic answers:
+   - Force deep reasoning and multi-step analysis
+
+9. Make it suitable for real investment decisions (but include a disclaimer)
+
+Now generate the FINAL PROMPT only.
+Do NOT explain anything.
+Do NOT describe your reasoning.
+Output only the ready-to-use prompt.

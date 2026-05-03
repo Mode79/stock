@@ -1,6 +1,57 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import YahooFinanceClass from 'yahoo-finance2'
+import fs from 'fs'
+import path from 'path'
+import { exec } from 'child_process'
+import Database from 'better-sqlite3';
+
+// --- DATABASE INITIALIZATION ---
+const db = new Database(path.join(process.cwd(), 'portfolio.db'));
+db.exec(`
+  CREATE TABLE IF NOT EXISTS transactions (
+    id TEXT PRIMARY KEY,
+    date TEXT,
+    type TEXT,
+    ticker TEXT,
+    quantity REAL,
+    price REAL,
+    broker TEXT,
+    fees REAL
+  );
+  CREATE TABLE IF NOT EXISTS analytics (
+    ticker TEXT PRIMARY KEY,
+    data TEXT
+  );
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );
+`);
+
+// Seed initial data if empty
+const txCount = db.prepare('SELECT COUNT(*) as count FROM transactions').get() as { count: number };
+if (txCount.count === 0) {
+  const seeds = [
+    { id: 'dep1', date: '2026-04-01', type: 'Deposit', price: 150000, broker: 'System', fees: 0 },
+    { id: 's1', date: '2026-04-28', type: 'Buy', ticker: 'MICH', quantity: 288, price: 35.48, broker: 'Thndr', fees: 17.77 },
+    { id: 's2', date: '2026-04-28', type: 'Buy', ticker: 'ORWE', quantity: 448, price: 22.90, broker: 'Thndr', fees: 16.81 },
+    { id: 's3', date: '2026-04-28', type: 'Buy', ticker: 'SUGR', quantity: 210, price: 49.49, broker: 'Thndr', fees: 15.99 },
+    { id: 's4', date: '2026-04-28', type: 'Buy', ticker: 'MPCI', quantity: 58, price: 172.99, broker: 'Thndr', fees: 15.53 },
+    { id: 's5', date: '2026-04-28', type: 'Buy', ticker: 'OLFI', quantity: 458, price: 22.28, broker: 'Thndr', fees: 15.75 },
+    { id: 's6', date: '2026-04-28', type: 'Buy', ticker: 'AMOC', quantity: 1261, price: 8.40, broker: 'Thndr', fees: 16.24 },
+    { id: 's7', date: '2026-04-28', type: 'Buy', ticker: 'SWDY', quantity: 121, price: 87.00, broker: 'Thndr', fees: 16.16 },
+    { id: 's8', date: '2026-05-03', type: 'Buy', ticker: 'OLFI', quantity: 362, price: 22.15, broker: 'Telda', fees: 4.00 },
+    { id: 's9', date: '2026-05-03', type: 'Buy', ticker: 'MPCI', quantity: 46, price: 172.41, broker: 'Telda', fees: 2.98 },
+    { id: 's10', date: '2026-05-03', type: 'Buy', ticker: 'MICH', quantity: 228, price: 35.80, broker: 'Telda', fees: 3.05 },
+    { id: 's11', date: '2026-05-03', type: 'Buy', ticker: 'SUGR', quantity: 163, price: 48.90, broker: 'Telda', fees: 3.00 },
+    { id: 's12', date: '2026-05-03', type: 'Buy', ticker: 'ORWE', quantity: 400, price: 23.10, broker: 'Telda', fees: 3.30 },
+    { id: 's13', date: '2026-05-03', type: 'Buy', ticker: 'SWDY', quantity: 98, price: 87.50, broker: 'Telda', fees: 4.15 },
+    { id: 's14', date: '2026-05-03', type: 'Buy', ticker: 'AMOC', quantity: 1155, price: 8.66, broker: 'Telda', fees: 5.50 },
+  ];
+  const insert = db.prepare('INSERT INTO transactions (id, date, type, ticker, quantity, price, broker, fees) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  seeds.forEach(s => insert.run(s.id, s.date, s.type, s.ticker || null, s.quantity || null, s.price, s.broker, s.fees));
+}
 
 const yf = new (YahooFinanceClass as any)({ suppressNotices: ['yahooSurvey'] });
 
@@ -8,6 +59,25 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const GEMINI_KEY_ENV = env.VITE_GEMINI_API_KEY || '';
   const OPENAI_KEY_ENV = env.VITE_OPENAI_API_KEY || '';
+
+  function logAIInteraction(trigger: string, provider: string, model: string, prompt: string, response: string) {
+    const timestamp = new Date().toLocaleString();
+    const logEntry = `
+=========================================
+TIMESTAMP: ${timestamp}
+TRIGGER: ${trigger}
+PROVIDER: ${provider}
+MODEL: ${model}
+-----------------------------------------
+PROMPT:
+${prompt}
+-----------------------------------------
+RESPONSE:
+${response}
+=========================================
+`;
+    fs.appendFileSync(path.join(process.cwd(), 'ai_interactions.log'), logEntry, 'utf8');
+  }
 
   async function callAI(provider: string, model: string, key: string, prompt: string) {
     if (provider === 'openai') {
@@ -28,7 +98,7 @@ export default defineConfig(({ mode }) => {
       return data.choices[0].message.content;
     } else {
       // Gemini
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-2.5-flash'}:generateContent?key=${key || GEMINI_KEY_ENV}`, {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-2.0-flash'}:generateContent?key=${key || GEMINI_KEY_ENV}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -37,10 +107,25 @@ export default defineConfig(({ mode }) => {
         })
       });
       const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
+      if (data.error) {
+        console.error(`[AI Error - ${provider}]`, data.error);
+        throw new Error(data.error.message || JSON.stringify(data.error));
+      }
       return data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
     }
   }
+
+  function cleanJSON(text: string) {
+    let clean = text.trim();
+    if (clean.includes('```')) {
+      const match = clean.match(/```json\s*([\s\S]*?)\s*```/) || clean.match(/```\s*([\s\S]*?)\s*```/);
+      if (match) clean = match[1];
+      else clean = clean.replace(/```json/g, '').replace(/```/g, '');
+    }
+    return clean.trim();
+  }
+
+  return {
     plugins: [
       react(),
       {
@@ -87,49 +172,93 @@ export default defineConfig(({ mode }) => {
             }
 
             // 2. AI ANALYZE ENDPOINT
-            if (req.method === 'POST' && url.includes('ai-analyze')) {
+            if (req.method === 'POST' && (url === '/ai-analyze' || url === '/api/ai-analyze')) {
               let body = '';
               req.on('data', chunk => body += chunk.toString());
               req.on('end', async () => {
                 try {
-                  const { ticker, company, history, stats } = JSON.parse(body);
+                  const { ticker = 'Unknown', company = 'Unknown', history = [], stats = {} } = JSON.parse(body);
                   const provider = req.headers['x-ai-provider'] as string || 'gemini';
-                  const model = req.headers['x-ai-model'] as string;
+                  let model = req.headers['x-ai-model'] as string;
                   const key = req.headers['x-ai-key'] as string;
+                  const isLoggingEnabled = req.headers['x-ai-logging'] === 'true';
 
-                  const prompt = `Act as a Senior Institutional Portfolio Manager specializing in the Egyptian Stock Exchange (EGX). 
-                  Analyze the following data for ${company} (${ticker}):
-                  - Current Price: EGP ${stats?.currentPrice || 'N/A'}
-                  - RSI (14): ${stats?.rsi || 'N/A'}
-                  - 50-Day Moving Average: EGP ${stats?.sma50 || 'N/A'}
-                  - 6-Month High/Low: ${stats?.resistance || 'N/A'} / ${stats?.support || 'N/A'}
-                  - Last 10 days Close Prices: ${(history || []).slice(-10).map((h:any) => h.close).join(', ')}
+                  // Safety: Prevent using GPT model name with Gemini provider and vice versa
+                  if (provider === 'gemini' && (!model || !model.includes('gemini'))) model = 'gemini-2.0-flash';
+                  if (provider === 'openai' && (!model || !model.includes('gpt'))) model = 'gpt-4o';
 
-                  Provide a professional, directional, and highly insightful analysis in BOTH English and Arabic.
-                  Format your response as a valid JSON object with these keys: "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "narrative", "narrative_ar", "targetPrice". 
-                  Return ONLY the JSON. No markdown.`;
+                  console.log(`[AI Proxy] Single Analysis | Provider: ${provider} | Model: ${model} | Ticker: ${ticker}`);
 
-                  let aiText = await callAI(provider, model, key, prompt);
+                  const prompt = `Analyze stock: ${ticker} (${company})
+
+Act as a senior financial analyst with CFA-level expertise and as a teacher for a non-expert investor.
+Perform a full-spectrum stock analysis using the most recent reliable data available. 
+Explain everything in simple language. Do not assume I understand finance.
+
+Current Data:
+- Price: EGP ${stats?.currentPrice || 'N/A'}
+- RSI: ${stats?.rsi || 'N/A'}
+- SMA50: ${stats?.sma50 || 'N/A'}
+- Support/Resistance: ${stats?.support || 'N/A'} / ${stats?.resistance || 'N/A'}
+- Recent Prices: ${(history || []).slice(-10).map((h:any) => h.close).join(', ')}
+
+Structure your response following these sections:
+# 1. Company Snapshot
+# 2. Decision Dashboard
+# 3. Fundamental Analysis
+# 4. Key Financial Ratios
+# 5. Valuation Analysis
+# 6. Growth Analysis
+# 7. Competitive & Industry Analysis
+# 8. Market & Macro Analysis
+# 9. Technical Analysis
+# 10. Sentiment Analysis
+# 11. Risk Analysis
+# 12. Management & Governance
+# 13. Dividend Analysis
+# 14. Scenario Analysis
+# 15. Investment Strategy
+# 16. Final Recommendation
+# 17. Data Quality & Confidence
+
+Rules:
+- Do not give generic answers. Use actual numbers.
+- Explain terms in simple language.
+- Return the final output as a valid JSON object with these keys: 
+  "sentiment", "sentiment_ar", 
+  "recommendation", "recommendation_ar", 
+  "narrative", "narrative_ar", 
+  "targetPrice".
+Return ONLY the JSON. No markdown outside the JSON.`;
+
+                  if (isLoggingEnabled) logAIInteraction(`Single Analysis: ${ticker} [REQUEST]`, provider, model || 'default', prompt, 'WAITING...');
                   
-                  if (aiText.includes('```')) {
-                    const match = aiText.match(/```json\s*([\s\S]*?)\s*```/) || aiText.match(/```\s*([\s\S]*?)\s*```/);
-                    if (match) aiText = match[1];
-                    else aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+                  try {
+                    const rawAiText = await callAI(provider, model, key, prompt);
+                    const aiText = cleanJSON(rawAiText);
+                    
+                    if (isLoggingEnabled) {
+                      logAIInteraction(`Single Analysis: ${ticker} [RESPONSE]`, provider, model || 'default', 'See request above', aiText);
+                    }
+
+                    const parsed = JSON.parse(aiText);
+                    const standardized = {
+                      sentiment: parsed.sentiment || parsed.Sentiment || 'NEUTRAL',
+                      sentiment_ar: parsed.sentiment_ar || 'حيادي',
+                      recommendation: parsed.recommendation || parsed.Recommendation || 'HOLD',
+                      recommendation_ar: parsed.recommendation_ar || 'انتظار',
+                      narrative: parsed.narrative || parsed.Narrative || parsed.strategy || parsed.Strategy || parsed.deepNarrative || 'Analysis generation failed.',
+                      narrative_ar: parsed.narrative_ar || 'فشل توليد التحليل باللغة العربية.',
+                      targetPrice: parsed.targetPrice || parsed.TargetPrice || (stats?.currentPrice || 0) * 1.1
+                    };
+                    
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify(standardized));
+                  } catch (e: any) {
+                    const errorMsg = e.message || 'Unknown AI Error';
+                    if (isLoggingEnabled) logAIInteraction(`Single Analysis: ${ticker} [ERROR]`, provider, model || 'default', 'See request above', errorMsg);
+                    res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: errorMsg }));
                   }
-
-                  const parsed = JSON.parse(aiText);
-                  const standardized = {
-                    sentiment: parsed.sentiment || parsed.Sentiment || 'NEUTRAL',
-                    sentiment_ar: parsed.sentiment_ar || 'حيادي',
-                    recommendation: parsed.recommendation || parsed.Recommendation || 'HOLD',
-                    recommendation_ar: parsed.recommendation_ar || 'انتظار',
-                    narrative: parsed.narrative || parsed.Narrative || parsed.strategy || parsed.Strategy || parsed.deepNarrative || 'Analysis generation failed.',
-                    narrative_ar: parsed.narrative_ar || 'فشل توليد التحليل باللغة العربية.',
-                    targetPrice: parsed.targetPrice || parsed.TargetPrice || (stats?.currentPrice || 0) * 1.1
-                  };
-                  
-                  res.setHeader('Content-Type', 'application/json');
-                  res.end(JSON.stringify(standardized));
                 } catch (e: any) {
                   console.error('[Proxy AI Analyze error]:', e.message);
                   res.writeHead(500).end(JSON.stringify({ error: e.message }));
@@ -139,44 +268,68 @@ export default defineConfig(({ mode }) => {
             }
 
             // 2b. BATCH AI ANALYZE
-            if (req.method === 'POST' && url.includes('ai-analyze-batch')) {
+            if (req.method === 'POST' && (url === '/ai-analyze-batch' || url === '/api/ai-analyze-batch')) {
               let body = '';
               req.on('data', chunk => body += chunk.toString());
               req.on('end', async () => {
                 try {
                   const { stocks } = JSON.parse(body);
                   const provider = req.headers['x-ai-provider'] as string || 'gemini';
-                  const model = req.headers['x-ai-model'] as string;
+                  let model = req.headers['x-ai-model'] as string;
                   const key = req.headers['x-ai-key'] as string;
+                  const isLoggingEnabled = req.headers['x-ai-logging'] === 'true';
 
-                  const prompt = `Act as a Senior Institutional Portfolio Manager for EGX. 
-                  Analyze the following stocks and provide professional insights for each.
-                  DATA:
-                  ${(stocks || []).map((s:any) => `
-                  STOCKED: ${s?.company} (${s?.ticker})
-                  - Price: EGP ${s?.stats?.currentPrice || 'N/A'}
-                  - RSI: ${s?.stats?.rsi || 'N/A'}
-                  - SMA50: ${s?.stats?.sma50 || 'N/A'}
-                  - Support/Resistance: ${s?.stats?.support || 'N/A'} / ${s?.stats?.resistance || 'N/A'}
-                  - Recent Close: ${(s?.history || []).map((h:any)=>h.close).join(', ')}
-                  `).join('\n')}
+                  if (provider === 'gemini' && (!model || !model.includes('gemini'))) model = 'gemini-2.0-flash';
+                  if (provider === 'openai' && (!model || !model.includes('gpt'))) model = 'gpt-4o';
 
-                  Format the output as a SINGLE JSON object where keys are EXACTLY the ticker symbols and values are objects with:
-                  "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "targetPrice".
-                  Return ONLY the JSON. No markdown.`;
+                  console.log(`[AI Proxy] Batch Analysis | Provider: ${provider} | Model: ${model} | Count: ${stocks?.length}`);
 
-                  let aiText = await callAI(provider, model, key, prompt);
-                  
-                  if (aiText.includes('```')) {
-                    const match = aiText.match(/```json\s*([\s\S]*?)\s*```/) || aiText.match(/```\s*([\s\S]*?)\s*```/);
-                    if (match) aiText = match[1];
-                    else aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
-                  }
-                  
-                  res.setHeader('Content-Type', 'application/json');
-                  res.end(aiText.trim());
+                  const prompt = `Act as a Senior Financial Analyst with CFA-level expertise.
+                   Perform a rigorous portfolio-wide analysis for the following stocks:
+                   
+                   DATA:
+                   ${(stocks || []).map((s:any) => `
+                   STOCK: ${s?.company} (${s?.ticker})
+                   - Price: EGP ${s?.stats?.currentPrice || 'N/A'}
+                   - RSI: ${s?.stats?.rsi || 'N/A'}
+                   - SMA50: ${s?.stats?.sma50 || 'N/A'}
+                   - Support/Resistance: ${s?.stats?.support || 'N/A'} / ${s?.stats?.resistance || 'N/A'}
+                   - Recent Close: ${(s?.history || []).map((h:any)=>h.close).join(', ')}
+                   `).join('\n')}
+
+                   For each stock, apply CFA-level rigor following this structure:
+                   1. Company Snapshot & Business Model
+                   2. Decision Dashboard (Ratings & Confidence)
+                   3. Fundamental Strength & Financial Health
+                   4. Key Ratios (P/E, ROE, Debt/Equity)
+                   5. Valuation (Relative & DCF)
+                   6. Technical Trend & Sentiment
+                   7. Risks & Red Flags
+                   
+                   Format the output as a SINGLE JSON object where keys are EXACTLY the ticker symbols and values are objects with:
+                   "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "targetPrice".
+                   
+                   Return ONLY the JSON. No markdown tags.`;
+
+                   if (isLoggingEnabled) logAIInteraction(`Batch Analysis (${stocks?.length || 0} stocks) [REQUEST]`, provider, model || 'default', prompt, 'WAITING...');
+                   
+                   try {
+                     const rawAiText = await callAI(provider, model, key, prompt);
+                     const aiText = cleanJSON(rawAiText);
+
+                     if (isLoggingEnabled) {
+                       logAIInteraction(`Batch Analysis (${stocks?.length || 0} stocks) [RESPONSE]`, provider, model || 'default', 'See request above', aiText);
+                     }
+                     
+                     res.setHeader('Content-Type', 'application/json');
+                     res.end(aiText);
+                   } catch (e: any) {
+                     const errorMsg = e.message || 'Unknown Batch AI Error';
+                     if (isLoggingEnabled) logAIInteraction(`Batch Analysis [ERROR]`, provider, model || 'default', 'See request above', errorMsg);
+                     res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: errorMsg }));
+                   }
                 } catch (e: any) {
-                  res.writeHead(500).end(JSON.stringify({ error: e.message }));
+                  res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: e.message || 'Malformed Request' }));
                 }
               });
               return;
@@ -232,6 +385,7 @@ export default defineConfig(({ mode }) => {
                   const parsed = JSON.parse(body);
                   const tickers: string[] = parsed.tickers || [];
                   if (tickers.length === 0) return res.writeHead(400).end('Missing tickers');
+                  console.log(`[AI Proxy] Fetching quotes for: ${tickers.join(', ')}`);
                   const tvTickers = tickers.map((t: string) => `EGX:${t.replace('.CA', '')}`);
                   const tvRes = await fetch('https://scanner.tradingview.com/egypt/scan', {
                     method: 'POST',
@@ -239,6 +393,8 @@ export default defineConfig(({ mode }) => {
                     body: JSON.stringify({ symbols: { tickers: tvTickers, query: { types: [] } }, columns: ['close', 'change', 'change_abs', 'description', 'sector', 'logoid'] })
                   });
                   const tvData = await tvRes.json();
+                  console.log(`[AI Proxy] TradingView Response: ${tvData.data?.length || 0} symbols found`);
+                  
                   const tvMap: Record<string, any> = {};
                   if (tvData.data) {
                     tvData.data.forEach((item: any) => {
@@ -249,10 +405,13 @@ export default defineConfig(({ mode }) => {
                   try {
                     const quotes = await yf.quote(tickers);
                     const quotesArray = Array.isArray(quotes) ? quotes : [quotes];
+                    console.log(`[AI Proxy] Yahoo Finance Response: ${quotesArray.length} symbols found`);
                     quotesArray.forEach((q: any) => {
                       if (q.symbol) yfMap[q.symbol.replace('.CA', '')] = { price: q.regularMarketPrice, changePercent: q.regularMarketChangePercent, name: q.shortName || q.longName };
                     });
-                  } catch (e) {}
+                  } catch (e: any) {
+                    console.error('[AI Proxy] Yahoo Finance Error:', e.message);
+                  }
                   const finalResponseMap: Record<string, any> = {};
                   tickers.forEach((t: string) => {
                     const symbol = t.replace('.CA', '');
@@ -263,6 +422,7 @@ export default defineConfig(({ mode }) => {
                     };
                     finalResponseMap[symbol] = { ...(tvMap[symbol] || yfMap[symbol]), ...meta };
                   });
+                  console.log(`[AI Proxy] Final Response Map: ${Object.keys(finalResponseMap).join(', ')}`);
                   res.setHeader('Content-Type', 'application/json');
                   res.end(JSON.stringify(finalResponseMap));
                 } catch (e: any) {
@@ -271,6 +431,91 @@ export default defineConfig(({ mode }) => {
               });
               return;
             }
+
+            // 5. OPEN LOGS ENDPOINT
+            if (req.method === 'GET' && url.includes('open-logs')) {
+              const logPath = path.join(process.cwd(), 'ai_interactions.log');
+              if (!fs.existsSync(logPath)) {
+                fs.writeFileSync(logPath, `AI Interaction Log Initiated at ${new Date().toLocaleString()}\nNo interactions recorded yet.\n`, 'utf8');
+              }
+              exec(`start "" "${logPath}"`, (err) => {
+                if (err) res.writeHead(500).end('Could not open file');
+                else res.end('Opened');
+              });
+              return;
+            }
+
+            // 6. DATABASE ENDPOINTS
+            if (url.startsWith('/db/') || url.startsWith('/api/db/')) {
+              const dbUrl = url.replace('/api/db/', '/db/').replace('/db/', '');
+              
+              if (req.method === 'GET') {
+                if (dbUrl === 'init') {
+                  const transactions = db.prepare('SELECT * FROM transactions').all();
+                  const analyticsRaw = db.prepare('SELECT * FROM analytics').all() as any[];
+                  const settingsRaw = db.prepare('SELECT * FROM settings').all() as any[];
+                  
+                  const analytics: Record<string, any> = {};
+                  analyticsRaw.forEach(r => analytics[r.ticker] = JSON.parse(r.data));
+                  
+                  const settings: Record<string, any> = {};
+                  settingsRaw.forEach(r => settings[r.key] = JSON.parse(r.value));
+                  
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ transactions, analytics, settings }));
+                  return;
+                }
+              }
+
+              if (req.method === 'POST') {
+                let body = '';
+                req.on('data', chunk => body += chunk.toString());
+                req.on('end', () => {
+                  try {
+                    const data = JSON.parse(body);
+                    if (dbUrl === 'transactions') {
+                      const { id, date, type, ticker, quantity, price, broker, fees } = data;
+                      db.prepare('INSERT OR REPLACE INTO transactions (id, date, type, ticker, quantity, price, broker, fees) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+                        .run(id, date, type, ticker || null, quantity || null, price, broker || 'Thndr', fees || 0);
+                      res.end('Saved');
+                    } else if (dbUrl === 'settings') {
+                      Object.entries(data).forEach(([key, value]) => {
+                        db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+                          .run(key, JSON.stringify(value));
+                      });
+                      res.end('Saved');
+                    } else if (dbUrl === 'analytics') {
+                      Object.entries(data).forEach(([ticker, val]) => {
+                        db.prepare('INSERT OR REPLACE INTO analytics (ticker, data) VALUES (?, ?)')
+                          .run(ticker, JSON.stringify(val));
+                      });
+                      res.end('Saved');
+                    } else {
+                      res.writeHead(404).end();
+                    }
+                  } catch (e: any) {
+                    res.writeHead(500).end(e.message);
+                  }
+                });
+                return;
+              }
+
+              if (req.method === 'DELETE' && dbUrl.startsWith('transactions/')) {
+                const id = dbUrl.split('/')[1];
+                db.prepare('DELETE FROM transactions WHERE id = ?').run(id);
+                res.end('Deleted');
+                return;
+              }
+
+              if (req.method === 'POST' && dbUrl === 'reset') {
+                db.prepare('DELETE FROM transactions').run();
+                db.prepare('DELETE FROM analytics').run();
+                db.prepare('DELETE FROM settings').run();
+                res.end('Reset');
+                return;
+              }
+            }
+
             next();
           });
         }

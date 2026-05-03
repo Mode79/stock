@@ -21,6 +21,8 @@ interface Transaction {
   ticker?: string;
   quantity?: number;
   price: number;
+  broker: string;
+  fees: number;
 }
 
 interface Holding {
@@ -38,63 +40,135 @@ const getLogoUrl = (logoid: string | null | undefined) => {
   return logoid ? `https://s3-symbol-logo.tradingview.com/${logoid}.svg` : null;
 };
 
-// Initial state with your 7 stocks but formatted for the new system (fees merged into price)
+// Initial state
 const SEED_TRANSACTIONS: Transaction[] = [
-  { id: '1', date: '2026-01-01', type: 'Deposit', price: 74000 },
-  { id: '2', date: '2026-01-02', type: 'Buy', ticker: 'SWDY', quantity: 121, price: 87.1336 },
-  { id: '3', date: '2026-01-02', type: 'Buy', ticker: 'AMOC', quantity: 1261, price: 8.4129 },
-  { id: '4', date: '2026-01-03', type: 'Buy', ticker: 'OLFI', quantity: 458, price: 22.3144 },
-  { id: '5', date: '2026-01-03', type: 'Buy', ticker: 'MPCI', quantity: 58, price: 173.2578 },
-  { id: '6', date: '2026-01-04', type: 'Buy', ticker: 'MICH', quantity: 288, price: 35.5370 },
-  { id: '7', date: '2026-01-04', type: 'Buy', ticker: 'SUGR', quantity: 210, price: 49.5661 },
-  { id: '8', date: '2026-01-05', type: 'Buy', ticker: 'ORWE', quantity: 448, price: 22.9375 },
+  { id: 'dep1', date: '2026-04-01', type: 'Deposit', price: 150000, broker: 'System', fees: 0 },
+  { id: 's1', date: '2026-04-28', type: 'Buy', ticker: 'MICH', quantity: 288, price: 35.48, broker: 'Thndr', fees: 17.77 },
+  { id: 's2', date: '2026-04-28', type: 'Buy', ticker: 'ORWE', quantity: 448, price: 22.90, broker: 'Thndr', fees: 16.81 },
+  { id: 's3', date: '2026-04-28', type: 'Buy', ticker: 'SUGR', quantity: 210, price: 49.49, broker: 'Thndr', fees: 15.99 },
+  { id: 's4', date: '2026-04-28', type: 'Buy', ticker: 'MPCI', quantity: 58, price: 172.99, broker: 'Thndr', fees: 15.53 },
+  { id: 's5', date: '2026-04-28', type: 'Buy', ticker: 'OLFI', quantity: 458, price: 22.28, broker: 'Thndr', fees: 15.75 },
+  { id: 's6', date: '2026-04-28', type: 'Buy', ticker: 'AMOC', quantity: 1261, price: 8.40, broker: 'Thndr', fees: 16.24 },
+  { id: 's7', date: '2026-04-28', type: 'Buy', ticker: 'SWDY', quantity: 121, price: 87.00, broker: 'Thndr', fees: 16.16 },
+  { id: 's8', date: '2026-05-03', type: 'Buy', ticker: 'OLFI', quantity: 362, price: 22.15, broker: 'Telda', fees: 4.00 },
+  { id: 's9', date: '2026-05-03', type: 'Buy', ticker: 'MPCI', quantity: 46, price: 172.41, broker: 'Telda', fees: 2.98 },
+  { id: 's10', date: '2026-05-03', type: 'Buy', ticker: 'MICH', quantity: 228, price: 35.80, broker: 'Telda', fees: 3.05 },
+  { id: 's11', date: '2026-05-03', type: 'Buy', ticker: 'SUGR', quantity: 163, price: 48.90, broker: 'Telda', fees: 3.00 },
+  { id: 's12', date: '2026-05-03', type: 'Buy', ticker: 'ORWE', quantity: 400, price: 23.10, broker: 'Telda', fees: 3.30 },
+  { id: 's13', date: '2026-05-03', type: 'Buy', ticker: 'SWDY', quantity: 98, price: 87.50, broker: 'Telda', fees: 4.15 },
+  { id: 's14', date: '2026-05-03', type: 'Buy', ticker: 'AMOC', quantity: 1155, price: 8.66, broker: 'Telda', fees: 5.50 },
 ];
 
 function App() {
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('thndr_tx_v3');
-    return saved ? JSON.parse(saved) : SEED_TRANSACTIONS;
-  });
-  
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [marketData, setMarketData] = useState<Record<string, any>>({});
-  const [analyticsData, setAnalyticsData] = useState<Record<string, any>>(() => {
-    const saved = localStorage.getItem('thndr_analytics');
-    return saved ? JSON.parse(saved) : {};
-  });
+  const [analyticsData, setAnalyticsData] = useState<Record<string, any>>({});
   const [isUpdating, setIsUpdating] = useState(false);
   const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
   const [analyzingTicker, setAnalyzingTicker] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [staleData, setStaleData] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'portfolio' | 'history'>('portfolio');
   const [historyStock, setHistoryStock] = useState<string | null>(null);
   const [analysisStock, setAnalysisStock] = useState<Holding | null>(null);
-  
-  // AI Settings
-  const [aiSettings, setAiSettings] = useState(() => {
-    const saved = localStorage.getItem('thndr_ai_settings');
-    return saved ? JSON.parse(saved) : {
-      provider: 'gemini',
-      model: 'gemini-2.5-flash',
-      geminiKey: '',
-      openaiKey: '',
-    };
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [historySort, setHistorySort] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
+  const [aiSettings, setAiSettings] = useState({
+    provider: 'gemini',
+    model: 'gemini-2.0-flash',
+    geminiKey: '',
+    openaiKey: '',
+    enableLogging: true,
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+  // --- DATABASE SYNC ---
   useEffect(() => {
-    localStorage.setItem('thndr_ai_settings', JSON.stringify(aiSettings));
-  }, [aiSettings]);
+    const initData = async () => {
+      try {
+        const res = await fetch('/api/db/init');
+        const data = await res.json();
+        if (data.transactions) setTransactions(data.transactions);
+        if (data.analytics) setAnalyticsData(data.analytics);
+        if (data.settings && Object.keys(data.settings).length > 0) {
+          setAiSettings(prev => ({ ...prev, ...data.settings }));
+        }
+      } catch (e) { console.error('DB Init Error', e); }
+    };
+    initData();
+  }, []);
 
-  useEffect(() => {
-    localStorage.setItem('thndr_tx_v3', JSON.stringify(transactions));
-  }, [transactions]);
+  const saveTransaction = async (tx: Transaction) => {
+    await fetch('/api/db/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tx)
+    });
+    setTransactions(prev => {
+      const idx = prev.findIndex(t => t.id === tx.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = tx;
+        return next;
+      }
+      return [...prev, tx];
+    });
+  };
+
+  const deleteTransaction = async (id: string) => {
+    await fetch(`/api/db/transactions/${id}`, { method: 'DELETE' });
+    setTransactions(prev => prev.filter(t => t.id !== id));
+  };
+
+  const saveSettings = async (settings: any) => {
+    setAiSettings(settings);
+    await fetch('/api/db/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    });
+  };
+
+  const exportToCSV = (data: any[], filename: string) => {
+    if (!data.length) return;
+    const headers = Object.keys(data[0]).join(',');
+    const rows = data.map(obj => 
+      Object.values(obj).map(val => `"${val}"`).join(',')
+    ).join('\n');
+    const csvContent = `data:text/csv;charset=utf-8,${headers}\n${rows}`;
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `${filename}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const getSortedHoldings = (holdings: Holding[]) => {
+    if (!sortConfig) return holdings;
+    return [...holdings].sort((a: any, b: any) => {
+      if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  const requestSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
+    setSortConfig({ key, direction });
+  };
+
+  const SortIndicator = ({ column }: { column: string }) => {
+    if (!sortConfig || sortConfig.key !== column) return <span style={{ opacity: 0.2 }}> ↕</span>;
+    return <span> {sortConfig.direction === 'asc' ? '↑' : '↓'}</span>;
+  };
 
   const calculatePortfolio = () => {
     let walletBalance = 0;
     let totalDeposited = 0;
     let realizedPnL = 0;
-    let dividendsCollected = 0;
     const holdingsMap: Record<string, { shares: number; totalCost: number }> = {};
 
     const sortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -110,11 +184,10 @@ function App() {
           break;
         case 'Dividend':
           walletBalance += tx.price;
-          dividendsCollected += tx.price;
           break;
         case 'Buy':
           if (tx.ticker && tx.quantity) {
-            const cost = tx.quantity * tx.price;
+            const cost = (tx.quantity * tx.price) + (tx.fees || 0);
             walletBalance -= cost;
             if (!holdingsMap[tx.ticker]) holdingsMap[tx.ticker] = { shares: 0, totalCost: 0 };
             holdingsMap[tx.ticker].shares += tx.quantity;
@@ -123,7 +196,7 @@ function App() {
           break;
         case 'Sell':
           if (tx.ticker && tx.quantity) {
-            const proceeds = tx.quantity * tx.price;
+            const proceeds = (tx.quantity * tx.price) - (tx.fees || 0);
             walletBalance += proceeds;
             const h = holdingsMap[tx.ticker];
             if (h && h.shares > 0) {
@@ -154,7 +227,7 @@ function App() {
         };
       });
 
-    return { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected };
+    return { holdings, walletBalance, totalDeposited, realizedPnL };
   };
 
   const { holdings, walletBalance, totalDeposited, realizedPnL } = calculatePortfolio();
@@ -181,12 +254,15 @@ function App() {
   };
 
   const updateAllAnalytics = async () => {
-    if (holdings.length === 0) return;
+    console.log('[Frontend] Starting Global Portfolio Analysis');
+    if (holdings.length === 0) {
+      console.warn('[Frontend] No holdings found for analysis');
+      return;
+    }
     setIsAnalyzingAll(true);
     setAnalyzingTicker('All Stocks');
     
     try {
-      // 1. Collect technical data for all stocks in parallel
       const results = await Promise.all(holdings.map(async h => {
         try {
           const resHistory = await fetch(`/api/history?symbol=${h.ticker}&range=6m`);
@@ -204,12 +280,13 @@ function App() {
           const resistance = Math.max(...history.map((q:any)=>q.close)).toFixed(2);
           const support = Math.min(...history.map((q:any)=>q.close)).toFixed(2);
 
-          return {
+          const techData = {
             ticker: h.ticker,
             company: h.company,
             history: history.slice(-10),
             stats: { currentPrice: h.livePrice, rsi: rsi.toFixed(1), sma50, resistance, support }
           };
+          return techData;
         } catch (e) {
           console.error(`Failed technicals for ${h.ticker}`, e);
           return null;
@@ -219,74 +296,68 @@ function App() {
       const batchData = results.filter(r => r !== null);
       if (batchData.length === 0) throw new Error('No stocks were ready for analysis');
 
-      // 2. Call Batch AI Endpoint
       const aiRes = await fetch('/api/ai-analyze-batch', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'X-AI-Provider': aiSettings.provider,
           'X-AI-Model': aiSettings.model,
-          'X-AI-Key': aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey
+          'X-AI-Key': aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey,
+          'X-AI-Logging': aiSettings.enableLogging ? 'true' : 'false'
         },
         body: JSON.stringify({ stocks: batchData })
       });
       
       const responseText = await aiRes.text();
-      console.log('[Frontend] Raw Batch AI Response:', responseText);
-
-      if (!aiRes.ok) throw new Error(`Batch analysis failed: ${responseText}`);
+      if (!aiRes.ok) {
+        let errorMsg = responseText;
+        try {
+          const errorJson = JSON.parse(responseText);
+          errorMsg = errorJson.error || errorJson.message || responseText;
+        } catch (e) {
+          // Not JSON
+        }
+        throw new Error(errorMsg || 'Server returned an empty error response');
+      }
       
       let aiResults;
       try {
         aiResults = JSON.parse(responseText);
       } catch (e) {
-        console.error('[Frontend] Failed to parse AI JSON', e);
         throw new Error('Invalid AI Response Format');
       }
       
-      // 3. Merge with technicals
       const finalAnalytics: Record<string, any> = { ...analyticsData };
       const aiResultsProcessed = aiResults.stocks || aiResults.analysis || aiResults;
-      console.log('[Frontend] Parsed Results:', aiResultsProcessed);
+      
+      if (!aiResultsProcessed || typeof aiResultsProcessed !== 'object') {
+        throw new Error('AI returned an unexpected data format for batch analysis');
+      }
 
       batchData.forEach(s => {
         const ticker = s.ticker.toUpperCase();
-        
-        // Find the best match in the AI results (case-insensitive and partial match)
-        const aiKey = Object.keys(aiResultsProcessed).find(k => 
-          k.toUpperCase() === ticker || 
-          k.toUpperCase().includes(ticker) ||
-          ticker.includes(k.toUpperCase())
-        );
+        const cleanTicker = ticker.split('.')[0];
+        const aiKey = Object.keys(aiResultsProcessed).find(k => {
+          const cleanK = k.toUpperCase().split('.')[0].replace('EGX:', '').trim();
+          return cleanK === cleanTicker || ticker === k.toUpperCase();
+        });
 
-        const ai = aiKey ? aiResultsProcessed[aiKey] : {};
-        const currentPrice = s.stats?.currentPrice ? parseFloat(s.stats.currentPrice) : 0;
-
-        finalAnalytics[ticker] = {
-          sentiment: ai.sentiment || 'NEUTRAL',
-          sentiment_ar: ai.sentiment_ar || 'حيادي',
-          recommendation: ai.recommendation || 'HOLD',
-          recommendation_ar: ai.recommendation_ar || 'انتظار',
-          targetPrice: ai.targetPrice || (currentPrice * 1.1).toFixed(2),
-          rsi: s.stats?.rsi || '-'
-        };
+        const result = aiKey ? aiResultsProcessed[aiKey] : null;
+        if (result) {
+          finalAnalytics[s.ticker] = {
+            ...analyticsData[s.ticker],
+            sentiment: result.sentiment || result.Sentiment || 'NEUTRAL',
+            recommendation: result.recommendation || result.Recommendation || 'HOLD',
+            targetPrice: result.targetPrice || result.TargetPrice || s.stats.currentPrice * 1.1,
+            rsi: s.stats.rsi,
+            lastUpdate: new Date().toISOString()
+          };
+        }
       });
 
-      setAnalyticsData(finalAnalytics);
-      localStorage.setItem('thndr_analytics', JSON.stringify(finalAnalytics));
+      saveAnalytics(finalAnalytics);
     } catch (e: any) {
-      console.error('[Frontend] Batch analysis failed', e);
-      // Mark all as error if the whole batch fails
-      const errorState: Record<string, any> = { ...analyticsData };
-      holdings.forEach(h => {
-        errorState[h.ticker] = { 
-          sentiment: 'ERROR', 
-          recommendation: 'RETRY', 
-          targetPrice: '-', 
-          rsi: analyticsData[h.ticker]?.rsi || '-' 
-        };
-      });
-      setAnalyticsData(errorState);
+      alert(`AI Intelligence Error: ${e.message || 'Operation failed'}`);
     } finally {
       setAnalyzingTicker(null);
       setIsAnalyzingAll(false);
@@ -303,15 +374,12 @@ function App() {
     fetchLivePrices();
     const interval = setInterval(fetchLivePrices, 60000);
     return () => clearInterval(interval);
-  }, [transactions.length]);
+  }, []);
 
   const totalMarketValue = holdings.reduce((sum, h) => sum + (h.shares * h.livePrice), 0);
   const totalInvested = holdings.reduce((sum, h) => sum + h.totalCost, 0);
   const totalPnL = totalMarketValue - totalInvested;
   const totalPnLPercent = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
-
-  const allocationData = holdings.map(h => ({ name: h.ticker, value: h.shares * h.livePrice }));
-  const pnlData = holdings.map(h => ({ name: h.ticker, pnl: (h.shares * h.livePrice) - h.totalCost }));
 
   return (
     <div className="app-container">
@@ -321,11 +389,10 @@ function App() {
           <h2>Thunder Pro <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>EGX LIVE</span></h2>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={() => setIsSettingsOpen(true)}>
-            <SettingsIcon size={18} />
-            <span>Settings</span>
+          <button className="icon-btn" title="Settings" onClick={() => setIsSettingsOpen(true)}>
+            <SettingsIcon size={20} />
           </button>
-          <button className="btn-secondary" onClick={fetchLivePrices} disabled={isUpdating}>
+          <button className="btn-primary" onClick={fetchLivePrices} disabled={isUpdating}>
             <RefreshCw size={18} className={isUpdating ? 'spinning' : ''} />
             <span>Sync</span>
           </button>
@@ -336,509 +403,442 @@ function App() {
         </div>
       </header>
 
-      {/* --- SETTINGS MODAL --- */}
+      {/* Tab Navigation */}
+      <div style={{ padding: '0 1.5rem', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: '2rem' }}>
+        <button 
+          onClick={() => setActiveTab('portfolio')}
+          style={{ 
+            padding: '1rem 0.5rem', 
+            background: 'none', 
+            border: 'none', 
+            borderBottom: activeTab === 'portfolio' ? '2px solid var(--color-blue)' : '2px solid transparent',
+            color: activeTab === 'portfolio' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: '0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          <Activity size={16} /> Portfolio
+        </button>
+        <button 
+          onClick={() => setActiveTab('history')}
+          style={{ 
+            padding: '1rem 0.5rem', 
+            background: 'none', 
+            border: 'none', 
+            borderBottom: activeTab === 'history' ? '2px solid var(--color-blue)' : '2px solid transparent',
+            color: activeTab === 'history' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: '0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          <Clock size={16} /> Transaction History
+        </button>
+      </div>
+
+      <main className="main-content">
+        {activeTab === 'portfolio' ? (
+          <>
+            <div className="grid-cards">
+              <div className="card" style={{ borderLeft: '4px solid var(--color-blue)' }}>
+                <div className="card-header"><span className="card-title text-blue">Equity</span><Wallet size={20} className="text-blue" /></div>
+                <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {totalMarketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Basis EGP {totalInvested.toLocaleString()}</p>
+              </div>
+              <div className="card" style={{ borderLeft: `4px solid ${totalPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)'}` }}>
+                <div className="card-header"><span className="card-title" style={{ color: totalPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>Unrealized P&L</span>{totalPnL >= 0 ? <ArrowUpRight size={20} className="text-green" /> : <ArrowDownRight size={20} className="text-red" />}</div>
+                <h2 className="mono" style={{ fontSize: '2rem', color: totalPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{totalPnL >= 0 ? '+' : ''}{totalPnL.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{totalPnLPercent.toFixed(2)}% Performance</p>
+              </div>
+              <div className="card" style={{ borderLeft: '4px solid var(--color-yellow)' }}>
+                <div className="card-header"><span className="card-title text-yellow">Wallet</span><DollarSign size={20} className="text-yellow" /></div>
+                <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {walletBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Realized: EGP {realizedPnL.toLocaleString()}</p>
+              </div>
+            </div>
+
+            <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div className="card-header" style={{ padding: '1.5rem' }}>
+                <h3 className="card-title">Active Holdings</h3>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => exportToCSV(holdings, 'portfolio_holdings')}>
+                    Export CSV
+                  </button>
+                  {staleData && <div className="badge badge-yellow" style={{ fontSize: '0.7rem' }}><AlertTriangle size={12} /> Prices Stale</div>}
+                  <button className="btn-primary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => setIsModalOpen(true)}>
+                    <Plus size={16} /> <span>Add</span>
+                  </button>
+                </div>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th onClick={() => requestSort('ticker')} style={{ cursor: 'pointer' }}>Ticker <SortIndicator column="ticker" /></th>
+                    <th>Company Name</th>
+                    <th onClick={() => requestSort('shares')} style={{ cursor: 'pointer', textAlign: 'right' }}>Shares <SortIndicator column="shares" /></th>
+                    <th onClick={() => requestSort('avgCost')} style={{ cursor: 'pointer', textAlign: 'right' }}>Avg Cost <SortIndicator column="avgCost" /></th>
+                    <th style={{ textAlign: 'right' }}>Avg Value</th>
+                    <th onClick={() => requestSort('livePrice')} style={{ cursor: 'pointer', textAlign: 'right' }}>Live Price <SortIndicator column="livePrice" /></th>
+                    <th style={{ textAlign: 'right' }}>Live Value</th>
+                    <th style={{ textAlign: 'right' }}>P&L (EGP)</th>
+                    <th style={{ textAlign: 'center' }}>Sentiment</th>
+                    <th style={{ textAlign: 'center' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {getSortedHoldings(holdings).map(h => {
+                    const value = h.shares * h.livePrice;
+                    const pnl = value - h.totalCost;
+                    return (
+                      <tr key={h.ticker}>
+                        <td style={{ fontWeight: 700 }}>{h.ticker}</td>
+                        <td style={{ color: 'var(--text-secondary)' }}>{h.company}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{h.shares}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{h.avgCost.toFixed(2)}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{h.totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{h.livePrice.toFixed(2)}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <span className={`badge ${analyticsData[h.ticker]?.sentiment?.includes('BULL') ? 'badge-green' : analyticsData[h.ticker]?.sentiment?.includes('BEAR') ? 'badge-red' : 'badge-yellow'}`}>
+                            {analyticsData[h.ticker]?.sentiment || '-'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button className="icon-btn" onClick={() => setAnalysisStock(h)} title="Deep AI Dive"><Sparkles size={16} className="text-yellow" /></button>
+                          <button className="icon-btn" onClick={() => setHistoryStock(h.ticker)} title="Transaction History"><Clock size={16} className="text-blue" /></button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+        ) : (
+          <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div className="card-header" style={{ padding: '1.5rem' }}>
+              <h3 className="card-title">Transaction History</h3>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => exportToCSV(transactions, 'transaction_history')}>
+                  Export CSV
+                </button>
+                <button className="btn-primary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => setIsModalOpen(true)}>
+                  <Plus size={16} /> <span>Add New</span>
+                </button>
+              </div>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th onClick={() => setHistorySort({ key: 'date', direction: historySort.direction === 'asc' ? 'desc' : 'asc' })} style={{ cursor: 'pointer' }}>
+                      Date {historySort.key === 'date' ? (historySort.direction === 'asc' ? '↑' : '↓') : ''}
+                    </th>
+                    <th onClick={() => setHistorySort({ key: 'ticker', direction: historySort.direction === 'asc' ? 'desc' : 'asc' })} style={{ cursor: 'pointer' }}>
+                      Symbol {historySort.key === 'ticker' ? (historySort.direction === 'asc' ? '↑' : '↓') : ''}
+                    </th>
+                    <th>Type</th>
+                    <th>Broker</th>
+                    <th style={{ textAlign: 'right' }}>Qty</th>
+                    <th style={{ textAlign: 'right' }}>Price</th>
+                    <th style={{ textAlign: 'right' }}>Fees</th>
+                    <th style={{ textAlign: 'right' }}>Total</th>
+                    <th style={{ textAlign: 'center' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...transactions].sort((a: any, b: any) => {
+                    const dir = historySort.direction === 'asc' ? 1 : -1;
+                    if (a[historySort.key] < b[historySort.key]) return -1 * dir;
+                    if (a[historySort.key] > b[historySort.key]) return 1 * dir;
+                    return 0;
+                  }).map(tx => (
+                    <tr key={tx.id}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{tx.date}</td>
+                      <td style={{ fontWeight: 700 }}>{tx.ticker || '-'}</td>
+                      <td>
+                        <span className={`badge ${
+                          tx.type === 'Buy' ? 'badge-blue' : 
+                          tx.type === 'Sell' ? 'badge-red' : 
+                          tx.type === 'Deposit' ? 'badge-green' : 
+                          tx.type === 'Withdraw' ? 'badge-yellow' : 'badge-purple'
+                        }`}>{tx.type}</span>
+                      </td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{tx.broker || 'Thndr'}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{tx.quantity || '-'}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{tx.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{tx.fees || 0}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>
+                        {(tx.type === 'Buy' ? (tx.quantity! * tx.price + tx.fees) : tx.type === 'Sell' ? (tx.quantity! * tx.price - tx.fees) : tx.price).toLocaleString()}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button className="icon-btn" onClick={() => deleteTransaction(tx.id)} title="Delete"><Trash2 size={16} className="text-red" /></button>
+                      </td>
+                    </tr>
+                  ))}
+                  {transactions.length === 0 && (
+                    <tr>
+                      <td colSpan={7} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>No transactions found.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </main>
+
+      <button 
+        className="fab"
+        onClick={() => setIsModalOpen(true)}
+        style={{ position: 'fixed', bottom: '2rem', right: '2rem', width: '56px', height: '56px', borderRadius: '28px', background: 'var(--color-blue)', color: 'white', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Plus size={24} />
+      </button>
+
+      {/* --- MODALS --- */}
+      
       {isSettingsOpen && (
         <div className="modal-overlay" onClick={() => setIsSettingsOpen(false)}>
           <div className="modal-content" style={{ maxWidth: '500px' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div className="icon-circle" style={{ background: 'var(--color-blue-dark)', color: 'var(--color-blue)' }}>
-                  <SettingsIcon size={20} />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>AI Intelligence Settings</h2>
-                  <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)' }}>Configure your analysis engine</p>
-                </div>
+                <SettingsIcon size={20} className="text-blue" />
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>AI Settings</h2>
               </div>
-              <button className="btn-icon" onClick={() => setIsSettingsOpen(false)}><X size={20} /></button>
+              <button className="icon-btn" onClick={() => setIsSettingsOpen(false)}><X size={20} /></button>
             </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '20px' }}>
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600 }}>AI Provider</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <button 
-                    className={aiSettings.provider === 'gemini' ? 'btn-primary' : 'btn-secondary'} 
-                    onClick={() => setAiSettings({...aiSettings, provider: 'gemini', model: 'gemini-2.5-flash'})}
-                  >
-                    Google Gemini
-                  </button>
-                  <button 
-                    className={aiSettings.provider === 'openai' ? 'btn-primary' : 'btn-secondary'} 
-                    onClick={() => setAiSettings({...aiSettings, provider: 'openai', model: 'gpt-4o'})}
-                  >
-                    OpenAI ChatGPT
-                  </button>
+                <label className="text-muted" style={{ display: 'block', marginBottom: '0.5rem' }}>AI Provider</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <button className={aiSettings.provider === 'gemini' ? 'btn-primary' : 'btn-secondary'} onClick={() => saveSettings({...aiSettings, provider: 'gemini'})}>Gemini</button>
+                  <button className={aiSettings.provider === 'openai' ? 'btn-primary' : 'btn-secondary'} onClick={() => saveSettings({...aiSettings, provider: 'openai'})}>OpenAI</button>
                 </div>
               </div>
-
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600 }}>Model Selection</label>
-                <select 
-                  className="input-field" 
-                  style={{ width: '100%', background: 'var(--color-bg-light)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', padding: '10px', borderRadius: '8px' }}
-                  value={aiSettings.model}
-                  onChange={(e) => setAiSettings({...aiSettings, model: e.target.value})}
-                >
-                  {aiSettings.provider === 'gemini' ? (
-                    <>
-                      <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fastest)</option>
-                      <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-                      <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Most Powerful)</option>
-                    </>
-                  ) : (
-                    <>
-                      <option value="gpt-4o">GPT-4o (Omni)</option>
-                      <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                      <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                    </>
-                  )}
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600 }}>
-                  {aiSettings.provider === 'gemini' ? 'Gemini API Key' : 'OpenAI API Key'}
-                </label>
+                <label className="text-muted" style={{ display: 'block', marginBottom: '0.5rem' }}>API Key</label>
                 <input 
-                  type="password"
-                  className="input-field"
-                  style={{ width: '100%', background: 'var(--color-bg-light)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', padding: '10px', borderRadius: '8px' }}
-                  placeholder="Enter your API key (optional if set in server)"
-                  value={aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey}
-                  onChange={(e) => setAiSettings({
-                    ...aiSettings, 
-                    [aiSettings.provider === 'gemini' ? 'geminiKey' : 'openaiKey']: e.target.value
-                  })}
+                  type="password" 
+                  className="input-field" 
+                  value={aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey} 
+                  onChange={e => saveSettings({...aiSettings, [aiSettings.provider === 'gemini' ? 'geminiKey' : 'openaiKey']: e.target.value})}
+                  placeholder={`Enter ${aiSettings.provider} key`}
                 />
-                <p style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', marginTop: '6px' }}>
-                  Keys are stored locally in your browser.
-                </p>
               </div>
-
-              <button className="btn-primary" style={{ width: '100%', marginTop: '10px' }} onClick={() => setIsSettingsOpen(false)}>
-                Save Settings
-              </button>
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                <button className="btn-primary" style={{ flex: 1 }} onClick={() => saveSettings(aiSettings)}>Save & Close</button>
+                <button className="btn-secondary" style={{ color: 'var(--color-red)', borderColor: 'var(--color-red)' }} onClick={async () => {
+                  if (confirm('Are you sure you want to reset all portfolio data to defaults?')) {
+                    await fetch('/api/db/reset', { method: 'POST' });
+                    localStorage.clear();
+                    window.location.reload();
+                  }
+                }}>Reset Data</button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      <main className="main-content">
-        <div className="grid-cards">
-          <div className="card" style={{ borderLeft: '4px solid var(--color-blue)' }}>
-            <div className="card-header"><span className="card-title text-blue">Equity</span><Wallet size={20} className="text-blue" /></div>
-            <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {totalMarketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Basis EGP {totalInvested.toLocaleString()}</p>
-          </div>
-          <div className="card" style={{ borderLeft: `4px solid ${totalPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)'}` }}>
-            <div className="card-header"><span className="card-title" style={{ color: totalPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>Unrealized P&L</span>{totalPnL >= 0 ? <ArrowUpRight size={20} className="text-green" /> : <ArrowDownRight size={20} className="text-red" />}</div>
-            <h2 className="mono" style={{ fontSize: '2rem', color: totalPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{totalPnL >= 0 ? '+' : ''}{totalPnL.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{totalPnLPercent.toFixed(2)}% Performance</p>
-          </div>
-          <div className="card" style={{ borderLeft: '4px solid var(--color-yellow)' }}>
-            <div className="card-header"><span className="card-title text-yellow">Wallet</span><DollarSign size={20} className="text-yellow" /></div>
-            <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {walletBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Realized: EGP {realizedPnL.toLocaleString()}</p>
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Company Name</th>
-                <th style={{ textAlign: 'right' }}>Shares</th>
-                <th style={{ textAlign: 'right' }}>Avg Cost</th>
-                <th style={{ textAlign: 'right' }}>Live Price</th>
-                <th style={{ textAlign: 'right' }}>Cost Value</th>
-                <th style={{ textAlign: 'right' }}>Live Value</th>
-                <th style={{ textAlign: 'right' }}>P&L (EGP)</th>
-                <th style={{ textAlign: 'center' }}>Sentiment</th>
-                <th style={{ textAlign: 'right' }}>Target</th>
-                <th style={{ textAlign: 'center' }}>RSI</th>
-                <th style={{ textAlign: 'center' }}>REC</th>
-                <th style={{ textAlign: 'center' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {holdings.map(h => {
-                const value = h.shares * h.livePrice;
-                const pnl = value - h.totalCost;
-                const pnlPct = (pnl / h.totalCost) * 100;
-                return (
-                  <tr key={h.ticker}>
-                    <td style={{ fontWeight: 700 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                          {getLogoUrl(h.logoid) ? <img src={getLogoUrl(h.logoid)!} alt="" style={{ width: '100%', height: '100%' }} /> : <TrendingUp size={14} className="text-muted" />}
-                        </div>
-                        {h.ticker}
-                      </div>
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{h.company}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{h.shares}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{h.avgCost.toFixed(4)}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{h.livePrice.toFixed(2)}</td>
-                    <td className="mono" style={{ textAlign: 'right', opacity: 0.8 }}>{h.totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                    <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                    <td style={{ textAlign: 'center' }}>
-                      {isAnalyzingAll ? <RefreshCw size={12} className="spinning" /> : analyticsData[h.ticker] ? (
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: (analyticsData[h.ticker]?.sentiment || '').includes('BULL') ? 'var(--color-green)' : (analyticsData[h.ticker]?.sentiment || '').includes('SELL') ? 'var(--color-red)' : 'var(--color-yellow)' }}>
-                          {analyticsData[h.ticker]?.sentiment || '-'}
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td className="mono" style={{ textAlign: 'right', fontSize: '0.8rem' }}>
-                      {analyticsData[h.ticker]?.targetPrice ? `EGP ${analyticsData[h.ticker].targetPrice}` : '-'}
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      {analyticsData[h.ticker] ? (
-                        <span style={{ fontSize: '0.75rem', color: (analyticsData[h.ticker]?.rsi || 50) > 70 ? 'var(--color-red)' : (analyticsData[h.ticker]?.rsi || 50) < 30 ? 'var(--color-green)' : 'var(--text-muted)' }}>
-                          {analyticsData[h.ticker]?.rsi || '-'}
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      {analyticsData[h.ticker] ? (
-                        <span className={`badge ${(analyticsData[h.ticker]?.recommendation || '').includes('BUY') || (analyticsData[h.ticker]?.recommendation || '').includes('ACCUMULATE') ? 'badge-green' : (analyticsData[h.ticker]?.recommendation || '').includes('SELL') ? 'badge-red' : 'badge-yellow'}`}>
-                          {analyticsData[h.ticker]?.recommendation || '-'}
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                        <button className="icon-btn" title="View History" onClick={() => setHistoryStock(h.ticker)}>
-                          <BarChart2 size={16} className="text-blue" />
-                        </button>
-                        <button className="icon-btn" title="AI Analysis" onClick={() => setAnalysisStock(h)}>
-                          <Sparkles size={16} className="text-yellow" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="grid-3">
-          <div className="card">
-            <h3 className="card-title">Asset Allocation</h3>
-            <div style={{ height: 180 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart><Pie data={allocationData} dataKey="value" innerRadius={45} outerRadius={60} stroke="none">{allocationData.map((_, i) => <Cell key={`cell-${i}`} fill={['#58a6ff', '#3fb950', '#f85149', '#d29922', '#a371f7'][i % 5]} />)}</Pie><Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px' }} /></PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          <div className="card">
-            <h3 className="card-title">Performance Chart</h3>
-            <div style={{ height: 180 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={pnlData} layout="vertical" margin={{ left: 10 }}><XAxis type="number" hide /><YAxis dataKey="name" type="category" stroke="#8b949e" fontSize={10} width={40} /><Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px' }} /><Bar dataKey="pnl">{pnlData.map((e, i) => <Cell key={`c-${i}`} fill={e.pnl >= 0 ? '#3fb950' : '#f85149'} />)}</Bar></BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          <div className="card">
-            <h3 className="card-title">Deposits & Cash</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.8rem', fontSize: '0.85rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Deposited</span><span className="mono">EGP {totalDeposited.toLocaleString()}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Invested</span><span className="mono text-blue">EGP {totalInvested.toLocaleString()}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #30363d', paddingTop: '0.5rem' }}><strong>Wallet</strong><strong className="mono">EGP {walletBalance.toLocaleString()}</strong></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <h3 className="card-title" style={{ marginBottom: '1rem' }}>Transaction History</h3>
-          <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-            <table className="data-table">
-              <thead><tr><th>Date</th><th>Type</th><th>Ticker</th><th>Qty</th><th>Price</th><th>Action</th></tr></thead>
-              <tbody>
-                {[...transactions].reverse().map(tx => (
-                  <tr key={tx.id}>
-                    <td className="text-muted" style={{ fontSize: '0.75rem' }}>{tx.date}</td>
-                    <td><span className={`badge ${tx.type === 'Buy' ? 'badge-red' : tx.type === 'Sell' ? 'badge-green' : 'badge-yellow'}`}>{tx.type}</span></td>
-                    <td style={{ fontWeight: 600 }}>{tx.ticker || '-'}</td>
-                    <td className="mono">{tx.quantity || '-'}</td>
-                    <td className="mono">{tx.price.toLocaleString()}</td>
-                    <td><button className="icon-btn" onClick={() => setTransactions(transactions.filter(t => t.id !== tx.id))}><Trash2 size={14} /></button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </main>
-
       {isModalOpen && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="card-header"><h3 className="card-title">New Entry</h3><button className="icon-btn" onClick={() => setIsModalOpen(false)}><X size={20} /></button></div>
-            <TransactionForm onAdd={(tx) => { setTransactions([...transactions, { ...tx, id: crypto.randomUUID() }]); setIsModalOpen(false); }} />
-          </div>
-        </div>
+        <TransactionForm 
+          onClose={() => setIsModalOpen(false)} 
+          onSave={async (tx) => {
+            const id = Date.now().toString();
+            await saveTransaction({ ...tx, id });
+            setIsModalOpen(false);
+          }} 
+        />
       )}
 
       {historyStock && (
         <HistoryModal 
           ticker={historyStock} 
-          company={holdings.find(h => h.ticker === historyStock)?.company || historyStock}
-          logoid={holdings.find(h => h.ticker === historyStock)?.logoid}
+          transactions={transactions.filter(t => t.ticker === historyStock)} 
           onClose={() => setHistoryStock(null)} 
+          onDelete={deleteTransaction}
         />
       )}
 
       {analysisStock && (
         <AIAnalysisModal 
           stock={analysisStock} 
+          aiSettings={aiSettings}
           onClose={() => setAnalysisStock(null)} 
         />
       )}
+
     </div>
   );
 }
 
-function HistoryModal({ ticker, company, logoid, onClose }: { ticker: string; company: string; logoid?: string | null; onClose: () => void }) {
-  const [range, setRange] = useState('1m');
-  const [data, setData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+// --- SUB-COMPONENTS ---
 
-  const ranges = [
-    { label: '1D', value: '1d' },
-    { label: '1W', value: '1w' },
-    { label: '1M', value: '1m' },
-    { label: '3M', value: '3m' },
-    { label: '6M', value: '6m' },
-    { label: 'YTD', value: 'ytd' },
-    { label: '1Y', value: '1y' },
-    { label: '5Y', value: '5y' },
-    { label: 'MAX', value: 'max' },
-  ];
-
-  useEffect(() => {
-    const fetchHistory = async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/history?symbol=${ticker}&range=${range}`);
-        const json = await res.json();
-        if (Array.isArray(json)) {
-          setData(json);
-        } else {
-          setData([]);
-        }
-      } catch (e) {
-        console.error(e);
-        setData([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchHistory();
-  }, [ticker, range]);
-
-  const latestPrice = data.length > 0 ? data[data.length - 1].close : 0;
-  const firstPrice = data.length > 0 ? data[0].close : 0;
-  const pnl = latestPrice - firstPrice;
-  const pnlPct = firstPrice > 0 ? (pnl / firstPrice) * 100 : 0;
+function TransactionForm({ onClose, onSave }: { onClose: () => void; onSave: (tx: any) => void }) {
+  const [formData, setFormData] = useState({
+    date: new Date().toISOString().split('T')[0],
+    type: 'Buy' as TransactionType,
+    ticker: '',
+    quantity: 0,
+    price: 0,
+    broker: 'Thndr',
+    fees: 0
+  });
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-content" style={{ width: '800px', maxWidth: '95vw' }}>
-        <div className="card-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-              {getLogoUrl(logoid) ? <img src={getLogoUrl(logoid)!} alt="" style={{ width: '100%', height: '100%' }} /> : <TrendingUp size={20} className="text-muted" />}
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: '450px' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>New Transaction</h2>
+          <button className="icon-btn" onClick={onClose}><X size={20} /></button>
+        </div>
+        <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div className="grid-2" style={{ gap: '1rem' }}>
+            <div>
+              <label className="text-muted" style={{ fontSize: '0.8rem' }}>Type</label>
+              <select className="input-field" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value as TransactionType})}>
+                <option value="Buy">Buy</option>
+                <option value="Sell">Sell</option>
+                <option value="Deposit">Deposit</option>
+                <option value="Withdraw">Withdraw</option>
+                <option value="Dividend">Dividend</option>
+              </select>
             </div>
             <div>
-              <h3 className="card-title">{ticker} - {company}</h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
-                <span className="mono font-bold" style={{ fontSize: '1.25rem' }}>EGP {latestPrice.toFixed(2)}</span>
-                <span className={`pnl-chip ${pnl >= 0 ? 'up' : 'down'}`} style={{ fontSize: '0.8rem' }}>
-                  {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} ({pnlPct.toFixed(2)}%)
-                </span>
-              </div>
+              <label className="text-muted" style={{ fontSize: '0.8rem' }}>Date</label>
+              <input type="date" className="input-field" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
             </div>
           </div>
-          <button className="icon-btn" onClick={onClose}><X size={24} /></button>
-        </div>
-
-        <div className="timeframe-selector" style={{ display: 'flex', gap: '0.5rem', margin: '1.5rem 0', background: 'rgba(255,255,255,0.05)', padding: '4px', borderRadius: '8px' }}>
-          {ranges.map(r => (
-            <button 
-              key={r.value} 
-              className={`btn ${range === r.value ? 'active' : ''}`}
-              style={{ flex: 1, fontSize: '0.75rem', padding: '6px', border: 'none', background: range === r.value ? 'var(--color-blue)' : 'transparent', color: range === r.value ? 'white' : 'var(--text-secondary)' }}
-              onClick={() => setRange(r.value)}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ height: '350px', width: '100%', position: 'relative' }}>
-          {loading && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(13,17,23,0.5)', zIndex: 5, borderRadius: '8px' }}>
-              <RefreshCw className="spinning" size={32} />
+          {['Buy', 'Sell'].includes(formData.type) && (
+            <div className="grid-2" style={{ gap: '1rem' }}>
+              <div>
+                <label className="text-muted" style={{ fontSize: '0.8rem' }}>Ticker</label>
+                <input type="text" className="input-field" placeholder="e.g. SWDY" value={formData.ticker} onChange={e => setFormData({...formData, ticker: e.target.value.toUpperCase()})} />
+              </div>
+              <div>
+                <label className="text-muted" style={{ fontSize: '0.8rem' }}>Quantity</label>
+                <input type="number" className="input-field" value={formData.quantity} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} />
+              </div>
             </div>
           )}
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data}>
-              <defs>
-                <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)'} stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor={pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)'} stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-              <XAxis 
-                dataKey="date" 
-                hide={range === '1d' || range === '1w'} 
-                tickFormatter={(val) => new Date(val).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                stroke="var(--text-muted)"
-                fontSize={10}
+          <div>
+            <label className="text-muted" style={{ fontSize: '0.8rem' }}>{['Deposit', 'Withdraw', 'Dividend'].includes(formData.type) ? 'Amount (EGP)' : 'Price per Share (EGP)'}</label>
+            <input type="number" className="input-field" value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} />
+          </div>
+          <div className="grid-2" style={{ gap: '1rem' }}>
+            <div className="form-group">
+              <label>Broker Name</label>
+              <input 
+                type="text" 
+                className="input-field" 
+                value={formData.broker} 
+                onChange={e => setFormData({ ...formData, broker: e.target.value })} 
+                placeholder="e.g. Thndr, Hermes"
               />
-              <YAxis 
-                domain={['auto', 'auto']} 
-                orientation="right" 
-                stroke="var(--text-muted)" 
-                fontSize={10}
-                tickFormatter={(val) => val.toFixed(1)}
+            </div>
+            <div className="form-group">
+              <label>Fees (EGP)</label>
+              <input 
+                type="number" 
+                className="input-field" 
+                value={formData.fees} 
+                onChange={e => setFormData({ ...formData, fees: Number(e.target.value) })} 
               />
-              <Tooltip 
-                contentStyle={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px' }}
-                labelFormatter={(label) => new Date(label).toLocaleString()}
-              />
-              <Area 
-                type="monotone" 
-                dataKey="close" 
-                stroke={pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)'} 
-                fillOpacity={1} 
-                fill="url(#colorPrice)" 
-                strokeWidth={2}
-                animationDuration={500}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+            </div>
+          </div>
+          <button className="btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => onSave(formData)}>
+            Save Transaction
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-function TransactionForm({ onAdd }: { onAdd: (tx: any) => void }) {
-  const [type, setType] = useState<TransactionType>('Buy');
-  const [ticker, setTicker] = useState('');
-  const [qty, setQty] = useState('');
-  const [price, setPrice] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+function HistoryModal({ ticker, transactions, onClose, onDelete }: { ticker: string; transactions: Transaction[]; onClose: () => void; onDelete: (id: string) => void }) {
+  const isGlobal = ticker === 'All Transactions';
   
-  const [suggestions, setSuggestions] = useState<any[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-
-  useEffect(() => {
-    if (ticker.length > 0 && ['Buy', 'Sell'].includes(type)) {
-      const delay = setTimeout(async () => {
-        try {
-          const res = await fetch(`/api/search?q=${ticker}`);
-          const data = await res.json();
-          setSuggestions(data);
-          setShowSuggestions(true);
-        } catch (e) {
-          console.error(e);
-        }
-      }, 300);
-      return () => clearTimeout(delay);
-    } else {
-      setSuggestions([]);
-      setShowSuggestions(false);
-    }
-  }, [ticker, type]);
-
   return (
-    <form onSubmit={(e) => { 
-      e.preventDefault(); 
-      onAdd({ type, ticker: ticker.toUpperCase(), quantity: parseFloat(qty), price: parseFloat(price), date }); 
-    }}>
-      <div className="form-group">
-        <label>Type</label>
-        <select className="form-input" value={type} onChange={e => setType(e.target.value as TransactionType)}>
-          <option value="Buy">Buy Stock</option>
-          <option value="Sell">Sell Stock</option>
-          <option value="Deposit">Deposit Cash</option>
-          <option value="Withdraw">Withdraw Cash</option>
-          <option value="Dividend">Dividend</option>
-        </select>
-      </div>
-
-      {['Buy', 'Sell'].includes(type) && (
-        <div className="form-group" style={{ position: 'relative' }}>
-          <label>Stock Code (EGX)</label>
-          <div style={{ position: 'relative' }}>
-            <input 
-              className="form-input" 
-              style={{ paddingLeft: '2.5rem' }} 
-              placeholder="e.g. SWDY" 
-              value={ticker} 
-              onChange={e => setTicker(e.target.value.toUpperCase())}
-              onFocus={() => ticker.length > 0 && setShowSuggestions(true)}
-              autoComplete="off"
-              required 
-            />
-            <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.3 }} />
-          </div>
-          
-          {showSuggestions && suggestions.length > 0 && (
-            <div className="suggestions-list">
-              {suggestions.map(s => (
-                <div key={s.symbol} className="suggestion-item" onClick={() => {
-                  setTicker(s.symbol);
-                  setShowSuggestions(false);
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                      {getLogoUrl(s.logoid) ? <img src={getLogoUrl(s.logoid)} alt="" style={{ width: '100%', height: '100%' }} /> : <TrendingUp size={12} />}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <b>{s.symbol}</b>
-                      <small>{s.name}</small>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: isGlobal ? '800px' : '600px' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>{ticker}</h2>
+          <button className="icon-btn" onClick={onClose}><X size={20} /></button>
         </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-        {['Buy', 'Sell'].includes(type) && <div className="form-group"><label>Quantity</label><input className="form-input" type="number" required value={qty} onChange={e => setQty(e.target.value)} /></div>}
-        <div className="form-group"><label>{['Buy', 'Sell'].includes(type) ? 'Price (inc. Fees)' : 'Amount'}</label><input className="form-input" type="number" step="any" required value={price} onChange={e => setPrice(e.target.value)} /></div>
+        <div style={{ padding: '1rem', maxHeight: '70vh', overflowY: 'auto' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                {isGlobal && <th>Symbol</th>}
+                <th>Type</th>
+                <th>Broker</th>
+                <th style={{ textAlign: 'right' }}>Qty</th>
+                <th style={{ textAlign: 'right' }}>Price</th>
+                <th style={{ textAlign: 'right' }}>Fees</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...transactions].sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime()).map(tx => (
+                <tr key={tx.id}>
+                  <td style={{ whiteSpace: 'nowrap' }}>{tx.date}</td>
+                  {isGlobal && (
+                    <td style={{ fontWeight: 700 }}>{tx.ticker || '-'}</td>
+                  )}
+                  <td>
+                    <span className={`badge ${
+                      tx.type === 'Buy' ? 'badge-blue' : 
+                      tx.type === 'Sell' ? 'badge-red' : 
+                      tx.type === 'Deposit' ? 'badge-green' : 
+                      tx.type === 'Withdraw' ? 'badge-yellow' : 'badge-purple'
+                    }`}>{tx.type}</span>
+                  </td>
+                  <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{tx.broker || 'Thndr'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{tx.quantity || '-'}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>
+                    {tx.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{tx.fees || 0}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button className="icon-btn" onClick={() => onDelete(tx.id)}>
+                      <Trash2 size={14} className="text-red" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-      <div className="form-group"><label>Date</label><input className="form-input" type="date" required value={date} onChange={e => setDate(e.target.value)} /></div>
-      <button type="submit" className="btn-primary">Record Transaction</button>
-    </form>
+    </div>
   );
 }
 
-function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => void }) {
-  const [analysis, setAnalysis] = useState<any>(null);
+function AIAnalysisModal({ stock, aiSettings, onClose }: { stock: Holding; aiSettings: any; onClose: () => void }) {
   const [loading, setLoading] = useState(true);
+  const [analysis, setAnalysis] = useState<any>(null);
+  const [lang, setLang] = useState<'en' | 'ar'>('en');
 
   useEffect(() => {
     const generateAnalysis = async () => {
       setLoading(true);
       try {
-        // 1. Fetch historical data for context
         const resHistory = await fetch(`/api/history?symbol=${stock.ticker}&range=6m`);
         const history = await resHistory.json();
-        
         if (!history || history.length < 20) throw new Error('Insufficient data');
 
-        // 2. Calculate baseline technicals to help the AI
         let gains = 0, losses = 0;
         for (let i = history.length - 14; i < history.length; i++) {
           const diff = history[i].close - history[i-1].close;
@@ -847,241 +847,90 @@ function AIAnalysisModal({ stock, onClose }: { stock: Holding; onClose: () => vo
         const rs = (gains / 14) / (losses / 14 || 1);
         const rsi = 100 - (100 / (1 + rs));
         const sma50 = history.slice(-50).reduce((a:any, b:any) => a + b.close, 0) / Math.min(history.length, 50);
-        const prices = history.map((q: any) => q.close);
-        const resistance = Math.max(...prices);
-        const support = Math.min(...prices);
 
-        // 3. Call Real AI Endpoint
         const aiRes = await fetch('/api/ai-analyze', {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
             'X-AI-Provider': aiSettings.provider,
             'X-AI-Model': aiSettings.model,
-            'X-AI-Key': aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey
+            'X-AI-Key': aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey,
+            'X-AI-Logging': aiSettings.enableLogging ? 'true' : 'false'
           },
           body: JSON.stringify({
             ticker: stock.ticker,
             company: stock.company,
-            history: history.slice(-30), // Send last 30 days for detail
-            stats: {
-              currentPrice: stock.livePrice,
-              rsi: rsi.toFixed(1),
-              sma50: sma50.toFixed(2),
-              resistance: resistance.toFixed(2),
-              support: support.toFixed(2)
-            }
+            stats: { currentPrice: stock.livePrice, rsi: rsi.toFixed(1), sma50: sma50.toFixed(2) }
           })
         });
 
         const aiData = await aiRes.json();
-        
-        if (!aiRes.ok) {
-          throw new Error(aiData.error || 'Server error');
-        }
-
-        const trend = stock.livePrice > sma50 ? 'Bullish' : 'Bearish';
-
         setAnalysis({ 
-          rsi, sma50, resistance, support, trend,
+          rsi, sma50, 
           sentiment: aiData.sentiment || 'NEUTRAL',
           sentiment_ar: aiData.sentiment_ar || 'حيادي',
           recommendation: aiData.recommendation || 'HOLD',
           recommendation_ar: aiData.recommendation_ar || 'انتظار',
-          strategy: aiData.narrative || 'Strategy generation failed.',
-          strategy_ar: aiData.narrative_ar || 'فشل توليد التحليل.',
+          strategy: aiData.narrative || '...',
+          strategy_ar: aiData.narrative_ar || '...',
           targetPrice: Number(aiData.targetPrice) || stock.livePrice * 1.1,
-          upside: (((Number(aiData.targetPrice) || stock.livePrice * 1.1) - stock.livePrice) / stock.livePrice) * 100
+          trend: stock.livePrice > sma50 ? 'Bullish' : 'Bearish'
         });
-      } catch (e: any) {
-        console.error('Analysis failed:', e);
-        // Set a fallback state so the UI doesn't crash and shows the error
-        setAnalysis({
-          rsi: 0, sma50: 0, resistance: 0, support: 0, trend: 'Unknown',
-          sentiment: 'ERROR',
-          recommendation: 'RETRY',
-          strategy: `Analysis failed: ${e.message}`,
-          targetPrice: stock.livePrice,
-          upside: 0
-        });
-      } finally {
-        setLoading(false);
-      }
+      } catch (e: any) { alert(e.message); onClose(); }
+      finally { setLoading(false); }
     };
     generateAnalysis();
   }, [stock]);
 
-  const [lang, setLang] = useState<'en' | 'ar'>('en');
+  if (loading) return (
+    <div className="modal-overlay">
+      <div className="modal-content" style={{ maxWidth: '400px', textAlign: 'center', padding: '3rem' }}>
+        <RefreshCw className="spinning text-yellow" size={48} style={{ margin: '0 auto 1.5rem' }} />
+        <h3>AI Analysis in Progress...</h3>
+        <p className="text-muted">Analyzing market vectors for {stock.ticker}</p>
+      </div>
+    </div>
+  );
 
-  const t = {
-    en: {
-      report: 'Intelligence Report',
-      forecast: 'Deep Neural Analysis & Forecasting',
-      sentiment: 'Market Sentiment',
-      target: 'Price Target (3M)',
-      technical: 'Technical RSI',
-      insight: 'Deep Insight & Forecast',
-      strategy: 'Actionable Strategy',
-      levels: 'Key Levels',
-      resistance: 'Resistance (Max)',
-      pivot: 'Pivot (SMA50)',
-      support: 'Support (Min)',
-      confidence: 'AI Confidence',
-      engine: 'Institutional-Grade Analysis Engine v4.0',
-      recommendation: 'RECOMMENDATION',
-      scanning: 'Scanning historical vectors for',
-      analyzing: 'Analyzing Market Structure...',
-      overbought: 'Overbought',
-      oversold: 'Oversold',
-      stable: 'Stable',
-      bullish: 'bullish',
-      bearish: 'bearish',
-      insight_text: `Based on internal volatility scans, ${stock.company} is currently navigating a ${analysis?.trend?.toLowerCase()} phase. The current price of ${stock.livePrice.toFixed(2)} is interacting with the 6-month structural channel. We anticipate a breakout towards the ${analysis?.targetPrice?.toFixed(2)} resistance level within the next 45-60 trading days, provided macro-liquidity in the ${stock.sector} sector remains stable.`,
-      dir: 'ltr'
-    },
-    ar: {
-      report: 'تقرير استخبارات السوق',
-      forecast: 'تحليل عصبي عميق وتوقعات',
-      sentiment: 'مشاعر السوق',
-      target: 'السعر المستهدف (3 أشهر)',
-      technical: 'مؤشر القوة النسبية التقني',
-      insight: 'نظرة ثاقبة وتوقعات عميقة',
-      strategy: 'الاستراتيجية القابلة للتنفيذ',
-      levels: 'المستويات الرئيسية',
-      resistance: 'المقاومة (الحد الأقصى)',
-      pivot: 'نقطة الارتكاز (SMA50)',
-      support: 'الدعم (الحد الأدنى)',
-      confidence: 'ثقة الذكاء الاصطناعي',
-      engine: 'محرك تحليل من الدرجة المؤسسية v4.0',
-      recommendation: 'التوصية',
-      scanning: 'جاري مسح المؤشرات التاريخية لشركة',
-      analyzing: 'جاري تحليل هيكل السوق...',
-      overbought: 'تشبع شرائي',
-      oversold: 'تشبع بيعي',
-      stable: 'مستقر',
-      bullish: 'صعودية',
-      bearish: 'هبوطية',
-      insight_text: `بناءً على عمليات مسح التقلبات الداخلية، تمر شركة ${stock.company} حاليًا بمرحلة ${analysis?.trend === 'Bullish' ? 'صعودية' : 'هبوطية'}. يتفاعل السعر الحالي البالغ ${stock.livePrice.toFixed(2)} مع القناة الهيكلية لمدة 6 أشهر. نتوقع اختراقاً نحو مستوى المقاومة ${analysis?.targetPrice?.toFixed(2)} في غضون 45-60 يوماً تداول قادمة، بشرط استقرار السيولة الكلية في قطاع ${stock.sector}.`,
-      dir: 'rtl'
-    }
-  }[lang];
+  const t = lang === 'en' ? {
+    sentiment: 'Sentiment', recommendation: 'Recommendation', target: 'Target Price', technical: 'RSI', dir: 'ltr'
+  } : {
+    sentiment: 'المشاعر', recommendation: 'التوصية', target: 'السعر المستهدف', technical: 'مؤشر القوة', dir: 'rtl'
+  };
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-content" style={{ width: '750px', padding: '0', background: '#0d1117', border: '1px solid #30363d', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)', direction: t.dir }}>
-        <div style={{ padding: '1.5rem', background: 'linear-gradient(90deg, #161b22 0%, #0d1117 100%)', borderBottom: '1px solid #30363d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: '800px', direction: t.dir }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <div style={{ background: 'var(--color-yellow)', padding: '0', borderRadius: '12px', boxShadow: '0 0 15px rgba(210, 153, 34, 0.2)', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-              {getLogoUrl(stock.logoid) ? <img src={getLogoUrl(stock.logoid)!} alt="" style={{ width: '100%', height: '100%' }} /> : <Brain size={24} color="#0d1117" />}
-            </div>
-            <div>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>{stock.ticker} {t.report}</h2>
-              <p className="text-muted" style={{ fontSize: '0.8rem' }}>{t.forecast}</p>
-            </div>
+            <Brain size={24} className="text-yellow" />
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>{stock.ticker} Intelligence Report</h2>
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '2px' }}>
-              <button 
-                onClick={() => setLang('en')}
-                style={{ border: 'none', background: lang === 'en' ? 'var(--color-blue)' : 'transparent', color: 'white', padding: '4px 8px', borderRadius: '6px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}
-              >EN</button>
-              <button 
-                onClick={() => setLang('ar')}
-                style={{ border: 'none', background: lang === 'ar' ? 'var(--color-blue)' : 'transparent', color: 'white', padding: '4px 8px', borderRadius: '6px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}
-              >AR</button>
-            </div>
-            <button className="icon-btn" onClick={onClose}><X size={24} /></button>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button className="badge" onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}>{lang.toUpperCase()}</button>
+            <button className="icon-btn" onClick={onClose}><X size={20} /></button>
           </div>
         </div>
-
-        {loading ? (
-          <div style={{ height: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.5rem' }}>
-            <RefreshCw className="spinning text-yellow" size={48} />
-            <div style={{ textAlign: 'center' }}>
-              <p className="font-bold">{t.analyzing}</p>
-              <p className="text-muted" style={{ fontSize: '0.8rem' }}>{t.scanning} {stock.company}</p>
+        <div style={{ padding: '2rem' }}>
+          <div className="grid-3" style={{ gap: '1rem', marginBottom: '2rem' }}>
+            <div className="card" style={{ padding: '1rem' }}>
+              <label className="text-muted">{t.sentiment}</label>
+              <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>{lang === 'en' ? analysis.sentiment : analysis.sentiment_ar}</div>
+            </div>
+            <div className="card" style={{ padding: '1rem' }}>
+              <label className="text-muted">{t.target}</label>
+              <div style={{ fontWeight: 800, fontSize: '1.2rem', color: 'var(--color-green)' }}>EGP {analysis.targetPrice.toFixed(2)}</div>
+            </div>
+            <div className="card" style={{ padding: '1rem' }}>
+              <label className="text-muted">{t.technical}</label>
+              <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>{analysis.rsi.toFixed(1)}</div>
             </div>
           </div>
-        ) : (
-          <div style={{ padding: '2rem' }}>
-            <div className="grid-3" style={{ gap: '1rem', marginBottom: '2rem' }}>
-              <div style={{ background: '#161b22', padding: '1rem', borderRadius: '12px', border: '1px solid #30363d' }}>
-                <label className="text-muted" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.sentiment}</label>
-                <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: analysis.sentiment.includes('BULL') ? 'var(--color-green)' : analysis.sentiment.includes('SELL') ? 'var(--color-red)' : 'var(--color-yellow)' }} />
-                  <span style={{ fontWeight: 800, fontSize: '1.1rem' }}>{lang === 'en' ? analysis.sentiment : analysis.sentiment_ar}</span>
-                </div>
-              </div>
-              <div style={{ background: '#161b22', padding: '1rem', borderRadius: '12px', border: '1px solid #30363d' }}>
-                <label className="text-muted" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.target}</label>
-                <div style={{ marginTop: '0.5rem' }}>
-                  <span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--color-green)' }}>EGP {analysis.targetPrice.toFixed(2)}</span>
-                  <span style={{ fontSize: '0.75rem', marginLeft: '0.5rem', color: 'var(--color-green)' }}>+{analysis.upside.toFixed(1)}%</span>
-                </div>
-              </div>
-              <div style={{ background: '#161b22', padding: '1rem', borderRadius: '12px', border: '1px solid #30363d' }}>
-                <label className="text-muted" style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.technical}</label>
-                <div style={{ marginTop: '0.5rem' }}>
-                  <span style={{ fontWeight: 800, fontSize: '1.1rem' }}>{analysis.rsi.toFixed(1)}</span>
-                  <span style={{ fontSize: '0.75rem', marginLeft: '0.5rem', color: analysis.rsi > 70 ? 'var(--color-red)' : analysis.rsi < 30 ? 'var(--color-green)' : 'var(--text-muted)' }}>
-                    ({analysis.rsi > 70 ? t.overbought : analysis.rsi < 30 ? t.oversold : t.stable})
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
-              <div>
-                <div style={{ marginBottom: '1.5rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                    <Info size={18} className="text-blue" />
-                    <h4 style={{ margin: 0, fontSize: '1rem' }}>{t.insight}</h4>
-                  </div>
-                  <p style={{ lineHeight: 1.7, color: '#8b949e', fontSize: '0.95rem' }}>{t.insight_text}</p>
-                </div>
-                
-                <div style={{ background: 'rgba(56, 139, 253, 0.1)', border: '1px solid rgba(56, 139, 253, 0.3)', padding: '1.25rem', borderRadius: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                    <Target size={18} className="text-blue" />
-                    <h4 style={{ margin: 0, fontSize: '1rem', color: '#58a6ff' }}>{t.strategy}</h4>
-                  </div>
-                  <p style={{ lineHeight: 1.6, fontSize: '0.95rem', margin: 0 }}>{lang === 'en' ? analysis.strategy : analysis.strategy_ar}</p>
-                </div>
-              </div>
-
-              <div style={{ borderLeft: lang === 'en' ? '1px solid #30363d' : 'none', borderRight: lang === 'ar' ? '1px solid #30363d' : 'none', paddingLeft: lang === 'en' ? '2rem' : '0', paddingRight: lang === 'ar' ? '2rem' : '0' }}>
-                <h4 style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '1rem' }}>{t.levels}</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.resistance}</span>
-                    <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-red)' }}>EGP {analysis.resistance.toFixed(2)}</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.pivot}</span>
-                    <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-blue)' }}>EGP {analysis.sma50.toFixed(2)}</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.support}</span>
-                    <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-green)' }}>EGP {analysis.support.toFixed(2)}</div>
-                  </div>
-                </div>
-                
-                <div style={{ marginTop: '2rem', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid #30363d' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>{t.confidence}</div>
-                  <div style={{ fontWeight: 800, fontSize: '1.5rem' }}>89%</div>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid #30363d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <ShieldAlert size={14} className="text-red" />
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.engine}</span>
-              </div>
-              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-yellow)' }}>{t.recommendation}: {lang === 'en' ? analysis.recommendation : analysis.recommendation_ar}</span>
-            </div>
+          <div className="card" style={{ padding: '1.5rem', background: 'rgba(56, 139, 253, 0.1)' }}>
+            <h4 style={{ marginBottom: '0.5rem' }}>Strategy</h4>
+            <p style={{ lineHeight: 1.6 }}>{lang === 'en' ? analysis.strategy : analysis.strategy_ar}</p>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
