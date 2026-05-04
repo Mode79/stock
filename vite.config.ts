@@ -358,12 +358,26 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                 if (range === '1d' || range === '1w') {
                   try {
                     const chartData = await yf.chart(`${symbol}.CA`, { range: range === '1d' ? '1d' : '5d', interval: range === '1d' ? '2m' : '15m' });
-                    quotes = chartData.quotes.map((q: any) => ({ date: q.date, close: q.close || q.adjclose }));
+                    quotes = chartData.quotes.map((q: any) => ({ 
+                      date: q.date, 
+                      open: q.open,
+                      high: q.high,
+                      low: q.low,
+                      close: q.close || q.adjclose,
+                      volume: q.volume
+                    }));
                   } catch (chartErr) {
                     const period1 = new Date();
                     period1.setDate(period1.getDate() - (range === '1d' ? 1 : 7));
                     const histData = await yf.historical(`${symbol}.CA`, { period1, period2: new Date(), interval: '1d' });
-                    quotes = histData.map((q: any) => ({ date: q.date, close: q.close || q.adjclose }));
+                    quotes = histData.map((q: any) => ({ 
+                      date: q.date, 
+                      open: q.open,
+                      high: q.high,
+                      low: q.low,
+                      close: q.close || q.adjclose,
+                      volume: q.volume
+                    }));
                   }
                 } else {
                   const now = new Date();
@@ -377,7 +391,14 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                   else period1 = new Date(1970, 0, 1);
 
                   const histData = await yf.historical(`${symbol}.CA`, { period1, period2: now, interval: (range === '5y' || range === 'max') ? '1mo' : '1d' });
-                  quotes = histData.map((q: any) => ({ date: q.date, close: q.close || q.adjclose }));
+                  quotes = histData.map((q: any) => ({ 
+                    date: q.date, 
+                    open: q.open,
+                    high: q.high,
+                    low: q.low,
+                    close: q.close || q.adjclose,
+                    volume: q.volume
+                  }));
                 }
                 res.setHeader('Content-Type', 'application/json');
                 res.end(JSON.stringify(quotes.filter((q: any) => q.close != null)));

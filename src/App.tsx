@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ReferenceLine
 } from 'recharts';
 import { 
   ArrowUpRight, ArrowDownRight, RefreshCw, AlertTriangle, 
@@ -72,7 +72,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<'portfolio' | 'history'>('portfolio');
   const [historyStock, setHistoryStock] = useState<string | null>(null);
   const [analysisStock, setAnalysisStock] = useState<Holding | null>(null);
-  const [priceHistoryStock, setPriceHistoryStock] = useState<string | null>(null);
+  const [priceHistoryStock, setPriceHistoryStock] = useState<Holding | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [historySort, setHistorySort] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
   const [aiSettings, setAiSettings] = useState({
@@ -524,10 +524,10 @@ function App() {
                     <th>Company Name</th>
                     <th onClick={() => requestSort('shares')} style={{ cursor: 'pointer', textAlign: 'right' }}>Shares <SortIndicator column="shares" /></th>
                     <th onClick={() => requestSort('avgCost')} style={{ cursor: 'pointer', textAlign: 'right' }}>Avg Cost <SortIndicator column="avgCost" /></th>
-                    <th style={{ textAlign: 'right' }}>Avg Value</th>
+                    <th style={{ textAlign: 'right' }}>Purchased Value</th>
                     <th onClick={() => requestSort('livePrice')} style={{ cursor: 'pointer', textAlign: 'right' }}>Live Price <SortIndicator column="livePrice" /></th>
-                    <th style={{ textAlign: 'right' }}>Live Value</th>
-                    <th style={{ textAlign: 'right' }}>P&L (EGP)</th>
+                    <th style={{ textAlign: 'right' }}>Market Value</th>
+                    <th style={{ textAlign: 'right' }}>P&L</th>
                     <th style={{ textAlign: 'center' }}>Sentiment</th>
                     <th style={{ textAlign: 'center' }}>Actions</th>
                   </tr>
@@ -536,6 +536,7 @@ function App() {
                   {getSortedHoldings(holdings).map(h => {
                     const value = h.shares * h.livePrice;
                     const pnl = value - h.totalCost;
+                    const pnlPct = h.totalCost > 0 ? (pnl / h.totalCost) * 100 : 0;
                     return (
                       <tr key={h.ticker}>
                         <td style={{ fontWeight: 700 }}>{h.ticker}</td>
@@ -545,7 +546,10 @@ function App() {
                         <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{h.totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{h.livePrice.toFixed(2)}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                        <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
+                          <div>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                          <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>{pnl >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%</div>
+                        </td>
                         <td style={{ textAlign: 'center' }}>
                           <span className={`badge ${analyticsData[h.ticker]?.sentiment?.includes('BULL') ? 'badge-green' : analyticsData[h.ticker]?.sentiment?.includes('BEAR') ? 'badge-red' : 'badge-yellow'}`}>
                             {analyticsData[h.ticker]?.sentiment || '-'}
@@ -553,7 +557,7 @@ function App() {
                         </td>
                         <td style={{ textAlign: 'center' }}>
                           <button className="icon-btn" onClick={() => setAnalysisStock(h)} title="View AI Intelligence"><Eye size={16} className="text-blue" /></button>
-                          <button className="icon-btn" onClick={() => setPriceHistoryStock(h.ticker)} title="Price Performance"><TrendingUp size={16} className="text-green" /></button>
+                          <button className="icon-btn" onClick={() => setPriceHistoryStock(h)} title="Price Performance"><TrendingUp size={16} className="text-green" /></button>
                           <button className="icon-btn" onClick={() => setHistoryStock(h.ticker)} title="Transaction History"><Clock size={16} className="text-blue" /></button>
                         </td>
                       </tr>
@@ -762,7 +766,7 @@ function App() {
 
       {priceHistoryStock && (
         <PriceHistoryModal 
-          ticker={priceHistoryStock} 
+          stock={priceHistoryStock} 
           onClose={() => setPriceHistoryStock(null)} 
         />
       )}
@@ -1219,21 +1223,26 @@ function AIAnalysisModal({ stock, aiSettings, initialData, onSave, onClose }: { 
 }
 
 
-function PriceHistoryModal({ ticker, onClose }: { ticker: string; onClose: () => void }) {
+function PriceHistoryModal({ stock, onClose }: { stock: Holding; onClose: () => void }) {
   const [data, setData] = useState<any[]>([]);
   const [range, setRange] = useState('1m');
   const [loading, setLoading] = useState(true);
+  const [chartType, setChartType] = useState<'line' | 'candle'>('line');
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/history?symbol=${ticker}&range=${range}`);
+        const res = await fetch(`/api/history?symbol=${stock.ticker}&range=${range}`);
         const result = await res.json();
         if (Array.isArray(result)) {
           setData(result.map(d => ({
             ...d,
-            date: new Date(d.date).toLocaleDateString(undefined, {
+            // Format for charts
+            candle: [d.open, d.close],
+            wick: [d.low, d.high],
+            color: d.close >= d.open ? '#22c55e' : '#ef4444',
+            displayDate: new Date(d.date).toLocaleDateString(undefined, {
               month: 'short',
               day: range === '1d' ? undefined : 'numeric',
               hour: range === '1d' ? 'numeric' : undefined,
@@ -1245,7 +1254,7 @@ function PriceHistoryModal({ ticker, onClose }: { ticker: string; onClose: () =>
       finally { setLoading(false); }
     };
     fetchData();
-  }, [ticker, range]);
+  }, [stock.ticker, range]);
 
   const ranges = [
     { label: '1D', value: '1d' },
@@ -1253,76 +1262,62 @@ function PriceHistoryModal({ ticker, onClose }: { ticker: string; onClose: () =>
     { label: '1M', value: '1m' },
     { label: '6M', value: '6m' },
     { label: '1Y', value: '1y' },
-    { label: 'MAX', value: 'max' },
+    { label: '5Y', value: '5y' },
   ];
 
-  const currentPrice = data.length > 0 ? data[data.length - 1].close : 0;
-  const startPrice = data.length > 0 ? data[0].close : 0;
+  const currentPrice = data.length > 0 ? data[data.length - 1].close : stock.livePrice;
+  const startPrice = data.length > 0 ? data[0].close : stock.livePrice;
   const change = currentPrice - startPrice;
   const changePct = (change / startPrice) * 100;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: '900px', width: '90%' }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-            <div style={{ background: 'rgba(34, 197, 94, 0.1)', padding: '10px', borderRadius: '12px' }}>
-              <TrendingUp className="text-green" size={24} />
+      <div className="modal-content" style={{ maxWidth: '900px', width: '90%', padding: 0, overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+        {/* Header Section */}
+        <div style={{ padding: '2rem 2rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+               <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--border-color)', padding: '4px' }}>
+                  <img src={`https://s3-symbol-logo.tradingview.com/${stock.ticker === 'Unknown' ? 'indices' : stock.ticker.toLowerCase()}--big.svg`} 
+                       onError={(e:any) => e.target.src = 'https://s3-symbol-logo.tradingview.com/indices--big.svg'}
+                       style={{ width: '100%', height: '100%', borderRadius: '50%' }} />
+               </div>
+               <div>
+                 <h4 style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem', fontWeight: 600 }}>{stock.ticker}</h4>
+                 <h2 style={{ fontSize: '1.75rem', fontWeight: 800, margin: '2px 0 8px' }}>{stock.company === 'Loading...' ? stock.ticker : stock.company}</h2>
+                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                   <span style={{ fontSize: '1.5rem', fontWeight: 800 }}>EGP {currentPrice.toFixed(2)}</span>
+                   <span className={change >= 0 ? 'text-green' : 'text-red'} style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                     {change >= 0 ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
+                     {Math.abs(change).toFixed(2)} ({Math.abs(changePct).toFixed(2)}%)
+                     <span style={{ color: 'var(--text-secondary)', fontWeight: 400, marginLeft: '4px' }}>Past {range.toUpperCase()}</span>
+                   </span>
+                 </div>
+               </div>
             </div>
-            <div>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>{ticker} Price Performance</h2>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '4px' }}>
-                <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>EGP {currentPrice.toFixed(2)}</span>
-                <span className={change >= 0 ? 'text-green' : 'text-red'} style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  {change >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                  {Math.abs(changePct).toFixed(2)}%
-                </span>
-              </div>
-            </div>
+            <button className="icon-btn" onClick={onClose}><X size={24} /></button>
           </div>
-          <button className="icon-btn" onClick={onClose}><X size={24} /></button>
         </div>
 
+        {/* Chart Area */}
         <div style={{ padding: '2rem' }}>
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '2rem', background: 'var(--bg-card)', padding: '4px', borderRadius: '8px', width: 'fit-content' }}>
-            {ranges.map(r => (
-              <button 
-                key={r.value}
-                onClick={() => setRange(r.value)}
-                style={{
-                  padding: '6px 16px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  background: range === r.value ? 'var(--color-blue)' : 'transparent',
-                  color: range === r.value ? 'white' : 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  transition: 'all 0.2s'
-                }}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-
           <div style={{ height: '400px', width: '100%', position: 'relative' }}>
             {loading && (
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,11,14,0.5)', zIndex: 5, borderRadius: '12px' }}>
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,11,14,0.5)', zIndex: 10 }}>
                 <RefreshCw className="spinning text-blue" size={32} />
               </div>
             )}
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" debounce={100}>
               <AreaChart data={data}>
                 <defs>
                   <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={change >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0.3}/>
+                    <stop offset="5%" stopColor={change >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0.2}/>
                     <stop offset="95%" stopColor={change >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                 <XAxis 
-                  dataKey="date" 
+                  dataKey="displayDate" 
                   axisLine={false} 
                   tickLine={false} 
                   tick={{ fill: 'var(--text-secondary)', fontSize: 10 }}
@@ -1334,24 +1329,71 @@ function PriceHistoryModal({ ticker, onClose }: { ticker: string; onClose: () =>
                   tickLine={false} 
                   tick={{ fill: 'var(--text-secondary)', fontSize: 10 }}
                   orientation="right"
+                  tickFormatter={(val) => val.toFixed(1)}
                 />
                 <Tooltip 
-                  contentStyle={{ background: '#1a1b1e', border: '1px solid #333', borderRadius: '8px' }}
-                  itemStyle={{ color: '#fff', fontSize: '0.9rem' }}
+                  contentStyle={{ background: '#1a1b1e', border: '1px solid #333', borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}
+                  itemStyle={{ color: '#fff' }}
                 />
-                <Area 
-                  type="monotone" 
-                  dataKey="close" 
-                  stroke={change >= 0 ? '#22c55e' : '#ef4444'} 
-                  strokeWidth={2}
-                  fillOpacity={1} 
-                  fill="url(#colorPrice)" 
-                  animationDuration={1000}
-                />
+                <ReferenceLine y={startPrice} stroke="var(--text-muted)" strokeDasharray="3 3" label={{ position: 'left', value: startPrice.toFixed(2), fill: 'var(--text-muted)', fontSize: 10 }} />
+                
+                {chartType === 'line' ? (
+                  <Area 
+                    type="monotone" 
+                    dataKey="close" 
+                    stroke={change >= 0 ? '#22c55e' : '#ef4444'} 
+                    strokeWidth={2}
+                    fillOpacity={1} 
+                    fill="url(#colorPrice)" 
+                    animationDuration={800}
+                  />
+                ) : (
+                  // Simple candlestick simulation using Bars
+                  <Bar dataKey="wick" fill="none" strokeWidth={1}>
+                    {data.map((entry, index) => (
+                      <Cell key={`cell-wick-${index}`} stroke={entry.color} />
+                    ))}
+                  </Bar>
+                )}
+                
+                {/* Volume at bottom */}
+                <Bar dataKey="volume" yAxisId="volume" fill="rgba(255,255,255,0.1)" radius={[2, 2, 0, 0]} />
+                <YAxis yAxisId="volume" hide domain={[0, (dataMax:any) => dataMax * 4]} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
+
+          {/* Timeframe & Chart Type Selectors */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2rem' }}>
+            <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-card)', padding: '4px', borderRadius: '12px' }}>
+              {ranges.map(r => (
+                <button 
+                  key={r.value}
+                  onClick={() => setRange(r.value)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: range === r.value ? 'var(--color-blue)' : 'transparent',
+                    color: range === r.value ? 'white' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            
+            <button className="icon-btn" onClick={() => setChartType(chartType === 'line' ? 'candle' : 'line')} style={{ background: 'var(--bg-card)', padding: '10px' }}>
+              {chartType === 'line' ? <BarChart2 size={20} /> : <TrendingUp size={20} />}
+            </button>
+          </div>
         </div>
+
+
       </div>
     </div>
   );
