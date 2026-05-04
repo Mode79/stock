@@ -228,7 +228,10 @@ Rules:
   "sentiment", "sentiment_ar", 
   "recommendation", "recommendation_ar", 
   "narrative", "narrative_ar", 
-  "targetPrice".
+  "targetPrice",
+  "key_metrics" (array of strings), 
+  "risks" (array of strings), 
+  "catalysts" (array of strings).
 Return ONLY the JSON. No markdown outside the JSON.`;
 
                   if (isLoggingEnabled) logAIInteraction(`Single Analysis: ${ticker} [REQUEST]`, provider, model || 'default', prompt, 'WAITING...');
@@ -249,15 +252,24 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                       recommendation_ar: parsed.recommendation_ar || 'انتظار',
                       narrative: parsed.narrative || parsed.Narrative || parsed.strategy || parsed.Strategy || parsed.deepNarrative || 'Analysis generation failed.',
                       narrative_ar: parsed.narrative_ar || 'فشل توليد التحليل باللغة العربية.',
-                      targetPrice: parsed.targetPrice || parsed.TargetPrice || (stats?.currentPrice || 0) * 1.1
+                      targetPrice: parsed.targetPrice || parsed.TargetPrice || (stats?.currentPrice || 0) * 1.1,
+                      key_metrics: Array.isArray(parsed.key_metrics) ? parsed.key_metrics : (typeof parsed.key_metrics === 'object' && parsed.key_metrics !== null ? Object.entries(parsed.key_metrics).map(([k,v]) => `${k}: ${v}`) : []),
+                      risks: Array.isArray(parsed.risks) ? parsed.risks : (typeof parsed.risks === 'object' && parsed.risks !== null ? Object.values(parsed.risks) : []),
+                      catalysts: Array.isArray(parsed.catalysts) ? parsed.catalysts : (typeof parsed.catalysts === 'object' && parsed.catalysts !== null ? Object.values(parsed.catalysts) : [])
                     };
                     
                     res.setHeader('Content-Type', 'application/json');
                     res.end(JSON.stringify(standardized));
-                  } catch (e: any) {
-                    const errorMsg = e.message || 'Unknown AI Error';
-                    if (isLoggingEnabled) logAIInteraction(`Single Analysis: ${ticker} [ERROR]`, provider, model || 'default', 'See request above', errorMsg);
-                    res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: errorMsg }));
+                  } catch (err: any) {
+                    const errorMsg = err.message || 'Internal AI Proxy Error';
+                    console.error('--- AI PROXY CRITICAL ERROR ---', errorMsg);
+                    
+                    if (isLoggingEnabled) {
+                      logAIInteraction(`Single Analysis: ${ticker} [CRITICAL ERROR]`, provider, model || 'default', 'See request above', errorMsg);
+                    }
+                    
+                    res.statusCode = 500;
+                    res.end(JSON.stringify({ error: errorMsg }));
                   }
                 } catch (e: any) {
                   console.error('[Proxy AI Analyze error]:', e.message);
@@ -450,6 +462,36 @@ Return ONLY the JSON. No markdown outside the JSON.`;
               const dbUrl = url.replace('/api/db/', '/db/').replace('/db/', '');
               
               if (req.method === 'GET') {
+                const endpoint = dbUrl.split('?')[0];
+                if (endpoint === 'ai/models') {
+                    const parsedUrl = new URL(url, `http://${req.headers.host}`);
+                    const provider = parsedUrl.searchParams.get('provider');
+                    const keyFromHeader = req.headers['x-ai-key'] as string;
+                    
+                    if (provider === 'gemini') {
+                      const apiKey = keyFromHeader || GEMINI_KEY_ENV;
+                      if (!apiKey) {
+                        res.end(JSON.stringify([]));
+                        return;
+                      }
+                      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+                      const data = await response.json();
+                      res.end(JSON.stringify(data.models || []));
+                    } else if (provider === 'openai') {
+                      const apiKey = keyFromHeader || OPENAI_KEY_ENV;
+                      if (!apiKey) {
+                        res.end(JSON.stringify([]));
+                        return;
+                      }
+                      const response = await fetch('https://api.openai.com/v1/models', {
+                        headers: { 'Authorization': `Bearer ${apiKey}` }
+                      });
+                      const data = await response.json();
+                      res.end(JSON.stringify(data.data || []));
+                    }
+                    return;
+                }
+
                 if (dbUrl === 'init') {
                   const transactions = db.prepare('SELECT * FROM transactions').all();
                   const analyticsRaw = db.prepare('SELECT * FROM analytics').all() as any[];

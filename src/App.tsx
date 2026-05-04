@@ -6,7 +6,7 @@ import {
 import { 
   ArrowUpRight, ArrowDownRight, RefreshCw, AlertTriangle, 
   Wallet, DollarSign, Activity, CheckCircle2, Clock, Plus, Trash2, X, Search, TrendingUp,
-  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Settings as SettingsIcon
+  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Eye, Settings as SettingsIcon
 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line } from 'recharts';
 import './index.css';
@@ -72,6 +72,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<'portfolio' | 'history'>('portfolio');
   const [historyStock, setHistoryStock] = useState<string | null>(null);
   const [analysisStock, setAnalysisStock] = useState<Holding | null>(null);
+  const [priceHistoryStock, setPriceHistoryStock] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [historySort, setHistorySort] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
   const [aiSettings, setAiSettings] = useState({
@@ -82,6 +83,35 @@ function App() {
     enableLogging: true,
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    const fetchModels = async () => {
+      setLoadingModels(true);
+      try {
+        const res = await fetch(`/api/db/ai/models?provider=${aiSettings.provider}`, {
+          headers: { 'X-AI-Key': aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey }
+        });
+        const data = await res.json();
+        if (aiSettings.provider === 'gemini') {
+          const models = data
+            .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+            .map((m: any) => m.name.replace('models/', ''));
+          setAvailableModels(models);
+        } else {
+          const models = data.map((m: any) => m.id).sort();
+          setAvailableModels(models);
+        }
+      } catch (e) {
+        console.error('Failed to fetch models', e);
+        setAvailableModels([]);
+      }
+      setLoadingModels(false);
+    };
+    fetchModels();
+  }, [aiSettings.provider, aiSettings.geminiKey, aiSettings.openaiKey, isSettingsOpen]);
 
   // --- DATABASE SYNC ---
   useEffect(() => {
@@ -127,6 +157,15 @@ function App() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
+    });
+  };
+
+  const saveAnalytics = async (data: Record<string, any>) => {
+    setAnalyticsData(data);
+    await fetch('/api/db/analytics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
     });
   };
 
@@ -513,7 +552,8 @@ function App() {
                           </span>
                         </td>
                         <td style={{ textAlign: 'center' }}>
-                          <button className="icon-btn" onClick={() => setAnalysisStock(h)} title="Deep AI Dive"><Sparkles size={16} className="text-yellow" /></button>
+                          <button className="icon-btn" onClick={() => setAnalysisStock(h)} title="View AI Intelligence"><Eye size={16} className="text-blue" /></button>
+                          <button className="icon-btn" onClick={() => setPriceHistoryStock(h.ticker)} title="Price Performance"><TrendingUp size={16} className="text-green" /></button>
                           <button className="icon-btn" onClick={() => setHistoryStock(h.ticker)} title="Transaction History"><Clock size={16} className="text-blue" /></button>
                         </td>
                       </tr>
@@ -636,8 +676,47 @@ function App() {
                   placeholder={`Enter ${aiSettings.provider} key`}
                 />
               </div>
+              <div>
+                <label className="text-muted" style={{ display: 'block', marginBottom: '0.5rem' }}>AI Model</label>
+                {loadingModels ? (
+                  <div style={{ padding: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                    <RefreshCw size={14} className="spinning" style={{ marginRight: '8px' }} />
+                    Discovering models...
+                  </div>
+                ) : (
+                  <select 
+                    className="input-field" 
+                    value={aiSettings.model} 
+                    onChange={e => saveSettings({...aiSettings, model: e.target.value})}
+                    style={{ width: '100%', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+                  >
+                    <option value="">Select a model</option>
+                    {availableModels.map(m => {
+                      const isRecommended = [
+                        'gemini-2.5-flash', 
+                        'gemini-flash-latest', 
+                        'gemini-3-flash-preview',
+                        'gemini-3.1-flash-lite-preview',
+                        'gemini-2.5-flash-lite',
+                        'gpt-4o',
+                        'gpt-4o-mini'
+                      ].includes(m);
+                      return (
+                        <option key={m} value={m}>
+                          {m}{isRecommended ? ' (Recommended)' : ''}
+                        </option>
+                      );
+                    })}
+                    {availableModels.length === 0 && (
+                      <option value={aiSettings.provider === 'gemini' ? 'gemini-2.0-flash' : 'gpt-4o'}>
+                        {aiSettings.provider === 'gemini' ? 'gemini-2.0-flash (Default)' : 'gpt-4o (Default)'}
+                      </option>
+                    )}
+                  </select>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: '1rem' }}>
-                <button className="btn-primary" style={{ flex: 1 }} onClick={() => saveSettings(aiSettings)}>Save & Close</button>
+                <button className="btn-primary" style={{ flex: 1 }} onClick={() => setIsSettingsOpen(false)}>Close Settings</button>
                 <button className="btn-secondary" style={{ color: 'var(--color-red)', borderColor: 'var(--color-red)' }} onClick={async () => {
                   if (confirm('Are you sure you want to reset all portfolio data to defaults?')) {
                     await fetch('/api/db/reset', { method: 'POST' });
@@ -675,7 +754,16 @@ function App() {
         <AIAnalysisModal 
           stock={analysisStock} 
           aiSettings={aiSettings}
+          initialData={analyticsData[analysisStock.ticker]}
+          onSave={saveAnalytics}
           onClose={() => setAnalysisStock(null)} 
+        />
+      )}
+
+      {priceHistoryStock && (
+        <PriceHistoryModal 
+          ticker={priceHistoryStock} 
+          onClose={() => setPriceHistoryStock(null)} 
         />
       )}
 
@@ -826,109 +914,442 @@ function HistoryModal({ ticker, transactions, onClose, onDelete }: { ticker: str
   );
 }
 
-function AIAnalysisModal({ stock, aiSettings, onClose }: { stock: Holding; aiSettings: any; onClose: () => void }) {
-  const [loading, setLoading] = useState(true);
-  const [analysis, setAnalysis] = useState<any>(null);
+function AIAnalysisModal({ stock, aiSettings, initialData, onSave, onClose }: { stock: Holding; aiSettings: any; initialData?: any; onSave: (data: any) => void; onClose: () => void }) {
+  const [loading, setLoading] = useState(false);
+  const [analysis, setAnalysis] = useState<any>(initialData || null);
   const [lang, setLang] = useState<'en' | 'ar'>('en');
 
-  useEffect(() => {
-    const generateAnalysis = async () => {
-      setLoading(true);
-      try {
-        const resHistory = await fetch(`/api/history?symbol=${stock.ticker}&range=6m`);
-        const history = await resHistory.json();
-        if (!history || history.length < 20) throw new Error('Insufficient data');
+  const generateAnalysis = async () => {
+    setLoading(true);
+    try {
+      const resHistory = await fetch(`/api/history?symbol=${stock.ticker}&range=6m`);
+      const history = await resHistory.json();
+      
+      if (!Array.isArray(history) || history.length < 5) {
+        throw new Error('Could not retrieve enough historical data for this stock. Please try again later.');
+      }
 
-        let gains = 0, losses = 0;
-        for (let i = history.length - 14; i < history.length; i++) {
-          const diff = history[i].close - history[i-1].close;
-          if (diff > 0) gains += diff; else losses -= diff;
-        }
-        const rs = (gains / 14) / (losses / 14 || 1);
-        const rsi = 100 - (100 / (1 + rs));
-        const sma50 = history.slice(-50).reduce((a:any, b:any) => a + b.close, 0) / Math.min(history.length, 50);
+      // Safe technical calculations
+      const validQuotes = history.filter(q => typeof q.close === 'number' && !isNaN(q.close));
+      if (validQuotes.length < 5) throw new Error('Historical data contains invalid price points.');
 
-        const aiRes = await fetch('/api/ai-analyze', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'X-AI-Provider': aiSettings.provider,
-            'X-AI-Model': aiSettings.model,
-            'X-AI-Key': aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey,
-            'X-AI-Logging': aiSettings.enableLogging ? 'true' : 'false'
-          },
-          body: JSON.stringify({
-            ticker: stock.ticker,
-            company: stock.company,
-            stats: { currentPrice: stock.livePrice, rsi: rsi.toFixed(1), sma50: sma50.toFixed(2) }
-          })
-        });
+      let gains = 0, losses = 0;
+      const rsiPeriod = Math.min(validQuotes.length - 1, 14);
+      for (let i = validQuotes.length - rsiPeriod; i < validQuotes.length; i++) {
+        const diff = validQuotes[i].close - validQuotes[i-1].close;
+        if (diff > 0) gains += diff; else losses -= diff;
+      }
+      const rs = (gains / rsiPeriod) / (losses / rsiPeriod || 1);
+      const rsi = 100 - (100 / (1 + rs));
+      
+      const smaLen = Math.min(validQuotes.length, 50);
+      const sma50 = validQuotes.slice(-smaLen).reduce((a, b) => a + b.close, 0) / smaLen;
+      const high52 = Math.max(...validQuotes.map(h => h.close));
+      const low52 = Math.min(...validQuotes.map(h => h.close));
 
-        const aiData = await aiRes.json();
-        setAnalysis({ 
-          rsi, sma50, 
-          sentiment: aiData.sentiment || 'NEUTRAL',
-          sentiment_ar: aiData.sentiment_ar || 'حيادي',
-          recommendation: aiData.recommendation || 'HOLD',
-          recommendation_ar: aiData.recommendation_ar || 'انتظار',
-          strategy: aiData.narrative || '...',
-          strategy_ar: aiData.narrative_ar || '...',
-          targetPrice: Number(aiData.targetPrice) || stock.livePrice * 1.1,
-          trend: stock.livePrice > sma50 ? 'Bullish' : 'Bearish'
-        });
-      } catch (e: any) { alert(e.message); onClose(); }
-      finally { setLoading(false); }
-    };
-    generateAnalysis();
-  }, [stock]);
+      const aiRes = await fetch('/api/ai-analyze', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-AI-Provider': aiSettings.provider,
+          'X-AI-Model': aiSettings.model,
+          'X-AI-Key': aiSettings.provider === 'gemini' ? aiSettings.geminiKey : aiSettings.openaiKey,
+          'X-AI-Logging': aiSettings.enableLogging ? 'true' : 'false'
+        },
+        body: JSON.stringify({
+          ticker: stock.ticker,
+          company: stock.company === 'Loading...' ? stock.ticker : stock.company,
+          history: validQuotes.slice(-30), // Pass recent history for context
+          stats: { 
+            currentPrice: stock.livePrice, 
+            rsi: rsi.toFixed(1), 
+            sma50: sma50.toFixed(2),
+            high52: high52.toFixed(2),
+            low52: low52.toFixed(2)
+          }
+        })
+      });
 
-  if (loading) return (
+      if (!aiRes.ok) {
+        const errData = await aiRes.json().catch(() => ({}));
+        throw new Error(errData.error || `AI Service Error (Status ${aiRes.status})`);
+      }
+
+      const aiData = await aiRes.json();
+      const newAnalysis = { 
+        rsi, sma50, high52, low52,
+        sentiment: aiData.sentiment || 'NEUTRAL',
+        sentiment_ar: aiData.sentiment_ar || 'حيادي',
+        recommendation: aiData.recommendation || 'HOLD',
+        recommendation_ar: aiData.recommendation_ar || 'انتظار',
+        strategy: aiData.narrative || '...',
+        strategy_ar: aiData.narrative_ar || '...',
+        targetPrice: Number(aiData.targetPrice) || stock.livePrice * 1.1,
+        key_metrics: Array.isArray(aiData.key_metrics) ? aiData.key_metrics : (typeof aiData.key_metrics === 'object' && aiData.key_metrics !== null ? Object.entries(aiData.key_metrics).map(([k,v]) => `${k}: ${v}`) : []),
+        risks: Array.isArray(aiData.risks) ? aiData.risks : (typeof aiData.risks === 'object' && aiData.risks !== null ? Object.values(aiData.risks) : []),
+        catalysts: Array.isArray(aiData.catalysts) ? aiData.catalysts : (typeof aiData.catalysts === 'object' && aiData.catalysts !== null ? Object.values(aiData.catalysts) : []),
+        trend: stock.livePrice > sma50 ? 'Bullish' : 'Bearish',
+        lastUpdate: new Date().toISOString()
+      };
+      
+      const finalAnalytics = { ...initialData, ...newAnalysis, ticker: stock.ticker };
+      setAnalysis(finalAnalytics);
+      onSave(finalAnalytics);
+    } catch (e: any) { 
+      console.error('Analysis Error:', e);
+      alert(e.message); 
+      if (!analysis && !initialData) onClose(); 
+    }
+    finally { setLoading(false); }
+  };
+
+  if (!analysis && !loading) return (
     <div className="modal-overlay">
-      <div className="modal-content" style={{ maxWidth: '400px', textAlign: 'center', padding: '3rem' }}>
-        <RefreshCw className="spinning text-yellow" size={48} style={{ margin: '0 auto 1.5rem' }} />
-        <h3>AI Analysis in Progress...</h3>
-        <p className="text-muted">Analyzing market vectors for {stock.ticker}</p>
+      <div className="modal-content" style={{ maxWidth: '500px', textAlign: 'center', padding: '4rem' }}>
+        <div style={{ background: 'rgba(234, 179, 8, 0.1)', width: '80px', height: '80px', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 2rem' }}>
+          <Brain className="text-yellow" size={40} />
+        </div>
+        <h3 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.5rem' }}>No Analysis Found</h3>
+        <p className="text-muted" style={{ marginBottom: '2rem' }}>Generate a professional-grade AI report for {stock.ticker} using {aiSettings.model}.</p>
+        <button className="btn-primary" style={{ width: '100%', padding: '12px' }} onClick={generateAnalysis}>
+           Start AI Intelligence Dive
+        </button>
+        <button className="btn-secondary" style={{ width: '100%', padding: '12px', marginTop: '10px' }} onClick={onClose}>Close</button>
+      </div>
+    </div>
+  );
+
+  if (loading && !analysis) return (
+    <div className="modal-overlay">
+      <div className="modal-content" style={{ maxWidth: '500px', textAlign: 'center', padding: '4rem' }}>
+        <div className="loader-container" style={{ position: 'relative', width: '80px', height: '80px', margin: '0 auto 2rem' }}>
+          <RefreshCw className="spinning text-blue" size={80} style={{ opacity: 0.2 }} />
+          <Brain className="text-yellow" size={40} style={{ position: 'absolute', top: '20px', left: '20px' }} />
+        </div>
+        <h3 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.5rem' }}>Analyzing Market Vectors</h3>
+        <p className="text-muted">Synthesizing technical and fundamental data for {stock.ticker}...</p>
       </div>
     </div>
   );
 
   const t = lang === 'en' ? {
-    sentiment: 'Sentiment', recommendation: 'Recommendation', target: 'Target Price', technical: 'RSI', dir: 'ltr'
+    sentiment: 'Market Sentiment', recommendation: 'AI Recommendation', target: 'Target Price', 
+    technical: 'RSI (Strength)', sma: 'SMA 50 (Trend)', performance: 'Price vs SMA50',
+    metrics: 'Key Metrics', risks: 'Potential Risks', catalysts: 'Growth Catalysts',
+    strategy: 'Investment Strategy & Narrative', lastUpdated: 'Last Updated', dir: 'ltr'
   } : {
-    sentiment: 'المشاعر', recommendation: 'التوصية', target: 'السعر المستهدف', technical: 'مؤشر القوة', dir: 'rtl'
+    sentiment: 'مشاعر السوق', recommendation: 'توصية الذكاء الاصطناعي', target: 'السعر المستهدف', 
+    technical: 'مؤشر القوة RSI', sma: 'المتوسط المتحرك 50', performance: 'السعر مقابل المتوسط',
+    metrics: 'مقاييس رئيسية', risks: 'المخاطر المحتملة', catalysts: 'محفزات النمو',
+    strategy: 'إستراتيجية الاستثمار والتحليل', lastUpdated: 'آخر تحديث', dir: 'rtl'
   };
+
+  const smaDiff = ((stock.livePrice - analysis.sma50) / analysis.sma50) * 100;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: '800px', direction: t.dir }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <Brain size={24} className="text-yellow" />
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>{stock.ticker} Intelligence Report</h2>
+      <div className="modal-content" style={{ maxWidth: '1100px', width: '95%', direction: t.dir, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header" style={{ padding: '1.5rem 2rem', background: 'var(--bg-card)', position: 'sticky', top: 0, zIndex: 10, borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+            <div style={{ background: 'rgba(234, 179, 8, 0.1)', padding: '10px', borderRadius: '12px' }}>
+              <Brain size={28} className="text-yellow" />
+            </div>
+            <div>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>{stock.ticker} <span style={{ fontWeight: 400, opacity: 0.6 }}>|</span> {stock.company === 'Loading...' ? stock.ticker : stock.company}</h2>
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '4px', alignItems: 'center' }}>
+                 <span className="badge badge-blue">Professional Grade Analysis</span>
+                 {analysis.lastUpdate && (
+                   <span style={{ fontSize: '0.75rem', opacity: 0.5, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                     <Clock size={12} /> {t.lastUpdated}: {new Date(analysis.lastUpdate).toLocaleString()}
+                   </span>
+                 )}
+              </div>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="badge" onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}>{lang.toUpperCase()}</button>
-            <button className="icon-btn" onClick={onClose}><X size={20} /></button>
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <button className="btn-primary" style={{ padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '8px' }} onClick={generateAnalysis} disabled={loading}>
+               <RefreshCw size={16} className={loading ? 'spinning' : ''} /> {loading ? 'Analyzing...' : 'Re-Analyze'}
+            </button>
+            <button className="btn-secondary" style={{ padding: '6px 16px' }} onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}>
+               {lang === 'en' ? 'Arabic' : 'English'}
+            </button>
+            <button className="icon-btn" onClick={onClose}><X size={24} /></button>
           </div>
         </div>
+
         <div style={{ padding: '2rem' }}>
-          <div className="grid-3" style={{ gap: '1rem', marginBottom: '2rem' }}>
-            <div className="card" style={{ padding: '1rem' }}>
-              <label className="text-muted">{t.sentiment}</label>
-              <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>{lang === 'en' ? analysis.sentiment : analysis.sentiment_ar}</div>
+          {/* Dashboard Section */}
+          <div className="grid-4" style={{ gap: '1.25rem', marginBottom: '2.5rem' }}>
+            <div className="card" style={{ padding: '1.25rem', borderTop: '4px solid var(--color-blue)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <label className="text-muted small-caps">{t.sentiment}</label>
+                <TrendingUp size={16} className="text-blue" />
+              </div>
+              <div style={{ fontWeight: 800, fontSize: '1.5rem' }}>{lang === 'en' ? analysis.sentiment : analysis.sentiment_ar}</div>
             </div>
-            <div className="card" style={{ padding: '1rem' }}>
-              <label className="text-muted">{t.target}</label>
-              <div style={{ fontWeight: 800, fontSize: '1.2rem', color: 'var(--color-green)' }}>EGP {analysis.targetPrice.toFixed(2)}</div>
+            <div className="card" style={{ padding: '1.25rem', borderTop: '4px solid var(--color-green)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <label className="text-muted small-caps">{t.recommendation}</label>
+                <ShieldAlert size={16} className="text-green" />
+              </div>
+              <div style={{ fontWeight: 800, fontSize: '1.5rem', color: 'var(--color-green)' }}>{lang === 'en' ? analysis.recommendation : analysis.recommendation_ar}</div>
             </div>
-            <div className="card" style={{ padding: '1rem' }}>
-              <label className="text-muted">{t.technical}</label>
-              <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>{analysis.rsi.toFixed(1)}</div>
+            <div className="card" style={{ padding: '1.25rem', borderTop: '4px solid var(--color-yellow)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <label className="text-muted small-caps">{t.target}</label>
+                <Target size={16} className="text-yellow" />
+              </div>
+              <div style={{ fontWeight: 800, fontSize: '1.5rem' }}>EGP {Number(analysis.targetPrice).toFixed(2)}</div>
+            </div>
+            <div className="card" style={{ padding: '1.25rem', borderTop: `4px solid ${smaDiff >= 0 ? 'var(--color-green)' : 'var(--color-red)'}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <label className="text-muted small-caps">{t.performance}</label>
+                {smaDiff >= 0 ? <ArrowUpRight size={16} className="text-green" /> : <ArrowDownRight size={16} className="text-red" />}
+              </div>
+              <div style={{ fontWeight: 800, fontSize: '1.5rem', color: smaDiff >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
+                {smaDiff >= 0 ? '+' : ''}{Number(smaDiff).toFixed(2)}%
+              </div>
             </div>
           </div>
-          <div className="card" style={{ padding: '1.5rem', background: 'rgba(56, 139, 253, 0.1)' }}>
-            <h4 style={{ marginBottom: '0.5rem' }}>Strategy</h4>
-            <p style={{ lineHeight: 1.6 }}>{lang === 'en' ? analysis.strategy : analysis.strategy_ar}</p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                {/* Main Narrative */}
+                <div className="card" style={{ padding: '2rem', background: 'rgba(56, 139, 253, 0.05)', border: '1px solid rgba(56, 139, 253, 0.2)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1.5rem' }}>
+                    <Sparkles size={20} className="text-blue" />
+                    <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }}>{t.strategy}</h3>
+                  </div>
+                  <p style={{ lineHeight: 1.8, fontSize: '1.05rem', whiteSpace: 'pre-wrap' }}>
+                    {lang === 'en' ? analysis.strategy : analysis.strategy_ar}
+                  </p>
+                </div>
+
+                {/* Key Insights Grid */}
+                <div className="grid-3" style={{ gap: '1.5rem' }}>
+                  <div className="card" style={{ padding: '1.5rem' }}>
+                    <h4 style={{ color: 'var(--color-blue)', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>{t.metrics}</h4>
+                    <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {(Array.isArray(analysis.key_metrics) ? analysis.key_metrics : []).map((m: any, i: number) => <li key={i} style={{ fontSize: '0.9rem', display: 'flex', gap: '8px' }}><div style={{ color: 'var(--color-blue)' }}>•</div> {m}</li>)}
+                      {!analysis.key_metrics?.length && <li className="text-muted italic">Processing metrics...</li>}
+                    </ul>
+                  </div>
+                  <div className="card" style={{ padding: '1.5rem' }}>
+                    <h4 style={{ color: 'var(--color-red)', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>{t.risks}</h4>
+                    <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {(Array.isArray(analysis.risks) ? analysis.risks : []).map((m: any, i: number) => <li key={i} style={{ fontSize: '0.9rem', display: 'flex', gap: '8px' }}><div style={{ color: 'var(--color-red)' }}>•</div> {m}</li>)}
+                      {!analysis.risks?.length && <li className="text-muted italic">Identifying risks...</li>}
+                    </ul>
+                  </div>
+                  <div className="card" style={{ padding: '1.5rem' }}>
+                    <h4 style={{ color: 'var(--color-green)', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>{t.catalysts}</h4>
+                    <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {(Array.isArray(analysis.catalysts) ? analysis.catalysts : []).map((m: any, i: number) => <li key={i} style={{ fontSize: '0.9rem', display: 'flex', gap: '8px' }}><div style={{ color: 'var(--color-green)' }}>•</div> {m}</li>)}
+                      {!analysis.catalysts?.length && <li className="text-muted italic">Locating catalysts...</li>}
+                    </ul>
+                  </div>
+                </div>
+             </div>
+
+             {/* Sidebar Technicals */}
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <div className="card" style={{ padding: '1.5rem' }}>
+                   <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                     <BarChart2 size={18} className="text-purple" /> Technical Indicators
+                   </h3>
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span className="text-muted">{t.technical}</span>
+                        <span style={{ fontWeight: 700, color: Number(analysis.rsi) > 70 ? 'var(--color-red)' : Number(analysis.rsi) < 30 ? 'var(--color-green)' : 'inherit' }}>{Number(analysis.rsi).toFixed(1)}</span>
+                      </div>
+                      <div className="rsi-bar" style={{ height: '6px', background: '#333', borderRadius: '3px', position: 'relative', margin: '4px 0' }}>
+                         <div style={{ position: 'absolute', height: '100%', left: '30%', right: '30%', background: 'rgba(255,255,255,0.1)' }}></div>
+                         <div style={{ position: 'absolute', height: '12px', width: '2px', background: 'white', top: '-3px', left: `${Number(analysis.rsi)}%`, transition: 'all 0.5s ease' }}></div>
+                      </div>
+                      
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+                        <span className="text-muted">{t.sma}</span>
+                        <span style={{ fontWeight: 700 }}>{Number(analysis.sma50).toFixed(2)}</span>
+                      </div>
+                      
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span className="text-muted">Trend Status</span>
+                        <span className={`badge ${analysis.trend === 'Bullish' ? 'badge-green' : 'badge-red'}`}>{analysis.trend}</span>
+                      </div>
+                   </div>
+                </div>
+
+                <div className="card" style={{ padding: '1.5rem' }}>
+                   <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem' }}>52 Week Range</h3>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      <span>EGP {Number(analysis.low52).toFixed(2)}</span>
+                      <span>EGP {Number(analysis.high52).toFixed(2)}</span>
+                   </div>
+                   <div style={{ height: '6px', background: '#333', borderRadius: '3px', position: 'relative' }}>
+                      {/* Current price indicator on 52w range */}
+                      <div style={{ 
+                        position: 'absolute', 
+                        height: '100%', 
+                        background: 'var(--color-blue)', 
+                        left: '0', 
+                        width: `${Math.min(100, Math.max(0, (stock.livePrice - Number(analysis.low52)) / (Number(analysis.high52) - Number(analysis.low52)) * 100))}%`,
+                        borderRadius: '3px 0 0 3px'
+                      }}></div>
+                   </div>
+                   <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '0.8rem' }}>
+                      Current: <span style={{ fontWeight: 700 }}>{stock.livePrice}</span>
+                   </div>
+                </div>
+
+                <div className="card" style={{ padding: '1.5rem', border: '1px dashed var(--border-color)', background: 'none' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                    <Info size={16} className="text-muted" />
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>
+                      This analysis is generated by AI using technical signals and historical data. 
+                      Investment carries risk. Consult a certified financial advisor before trading.
+                    </p>
+                  </div>
+                </div>
+             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function PriceHistoryModal({ ticker, onClose }: { ticker: string; onClose: () => void }) {
+  const [data, setData] = useState<any[]>([]);
+  const [range, setRange] = useState('1m');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/history?symbol=${ticker}&range=${range}`);
+        const result = await res.json();
+        if (Array.isArray(result)) {
+          setData(result.map(d => ({
+            ...d,
+            date: new Date(d.date).toLocaleDateString(undefined, {
+              month: 'short',
+              day: range === '1d' ? undefined : 'numeric',
+              hour: range === '1d' ? 'numeric' : undefined,
+              minute: range === '1d' ? 'numeric' : undefined
+            })
+          })));
+        }
+      } catch (e) { console.error('History Fetch Error', e); }
+      finally { setLoading(false); }
+    };
+    fetchData();
+  }, [ticker, range]);
+
+  const ranges = [
+    { label: '1D', value: '1d' },
+    { label: '1W', value: '1w' },
+    { label: '1M', value: '1m' },
+    { label: '6M', value: '6m' },
+    { label: '1Y', value: '1y' },
+    { label: 'MAX', value: 'max' },
+  ];
+
+  const currentPrice = data.length > 0 ? data[data.length - 1].close : 0;
+  const startPrice = data.length > 0 ? data[0].close : 0;
+  const change = currentPrice - startPrice;
+  const changePct = (change / startPrice) * 100;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: '900px', width: '90%' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <div style={{ background: 'rgba(34, 197, 94, 0.1)', padding: '10px', borderRadius: '12px' }}>
+              <TrendingUp className="text-green" size={24} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>{ticker} Price Performance</h2>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '4px' }}>
+                <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>EGP {currentPrice.toFixed(2)}</span>
+                <span className={change >= 0 ? 'text-green' : 'text-red'} style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  {change >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                  {Math.abs(changePct).toFixed(2)}%
+                </span>
+              </div>
+            </div>
+          </div>
+          <button className="icon-btn" onClick={onClose}><X size={24} /></button>
+        </div>
+
+        <div style={{ padding: '2rem' }}>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '2rem', background: 'var(--bg-card)', padding: '4px', borderRadius: '8px', width: 'fit-content' }}>
+            {ranges.map(r => (
+              <button 
+                key={r.value}
+                onClick={() => setRange(r.value)}
+                style={{
+                  padding: '6px 16px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: range === r.value ? 'var(--color-blue)' : 'transparent',
+                  color: range === r.value ? 'white' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  transition: 'all 0.2s'
+                }}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ height: '400px', width: '100%', position: 'relative' }}>
+            {loading && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,11,14,0.5)', zIndex: 5, borderRadius: '12px' }}>
+                <RefreshCw className="spinning text-blue" size={32} />
+              </div>
+            )}
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={data}>
+                <defs>
+                  <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={change >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor={change >= 0 ? '#22c55e' : '#ef4444'} stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis 
+                  dataKey="date" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: 'var(--text-secondary)', fontSize: 10 }}
+                  minTickGap={30}
+                />
+                <YAxis 
+                  domain={['auto', 'auto']} 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: 'var(--text-secondary)', fontSize: 10 }}
+                  orientation="right"
+                />
+                <Tooltip 
+                  contentStyle={{ background: '#1a1b1e', border: '1px solid #333', borderRadius: '8px' }}
+                  itemStyle={{ color: '#fff', fontSize: '0.9rem' }}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="close" 
+                  stroke={change >= 0 ? '#22c55e' : '#ef4444'} 
+                  strokeWidth={2}
+                  fillOpacity={1} 
+                  fill="url(#colorPrice)" 
+                  animationDuration={1000}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>
