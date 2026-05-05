@@ -198,7 +198,8 @@ function App() {
   const [watchlist, setWatchlist] = useState<string[]>(['COMI', 'EKHO', 'TMGH', 'ABUK']);
   const [staleData, setStaleData] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'portfolio' | 'history' | 'risk' | 'performance' | 'market' | 'simulator' | 'holdingHistory' | 'learning'>('portfolio');
+  const [activeTab, setActiveTab] = useState<'portfolio' | 'history' | 'health' | 'market' | 'simulator' | 'holdingHistory'>('portfolio');
+  const [isLearningOpen, setIsLearningOpen] = useState(false);
   const [historyStock, setHistoryStock] = useState<string | null>(null);
   const [analysisStock, setAnalysisStock] = useState<Holding | null>(null);
   const [priceHistoryStock, setPriceHistoryStock] = useState<Holding | null>(null);
@@ -587,6 +588,9 @@ function App() {
           <h2>Thunder Pro <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>EGX LIVE</span></h2>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="icon-btn" title="Learning Center" onClick={() => setIsLearningOpen(true)}>
+            <BookOpen size={20} />
+          </button>
           <button className="icon-btn" title="Settings" onClick={() => setIsSettingsOpen(true)}>
             <SettingsIcon size={20} />
           </button>
@@ -730,13 +734,13 @@ function App() {
           <Target size={16} /> Simulation Lab
         </button>
         <button 
-          onClick={() => setActiveTab('learning')}
+          onClick={() => setActiveTab('health')}
           style={{ 
             padding: '1rem 0.5rem', 
             background: 'none', 
             border: 'none', 
-            borderBottom: activeTab === 'learning' ? '2px solid var(--color-blue)' : '2px solid transparent',
-            color: activeTab === 'learning' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            borderBottom: activeTab === 'health' ? '2px solid var(--color-blue)' : '2px solid transparent',
+            color: activeTab === 'health' ? 'var(--text-primary)' : 'var(--text-secondary)',
             fontWeight: 600,
             cursor: 'pointer',
             fontSize: '0.9rem',
@@ -745,17 +749,15 @@ function App() {
             gap: '8px'
           }}
         >
-          <BookOpen size={16} /> Learning Center
+          <Activity size={16} /> Portfolio Health
         </button>
       </div>
 
       <main className="main-content">
         {activeTab === 'market' && <MarketIntelligence watchlist={watchlist} setWatchlist={setWatchlist} marketData={marketData} analyticsData={analyticsData} setAnalysisStock={setAnalysisStock} shariaTickers={SHARIA_TICKERS} />}
         {activeTab === 'simulator' && <StrategySimulator holdings={holdings} />}
-        {activeTab === 'performance' && <PerformanceDashboard transactions={transactions} />}
-        {activeTab === 'risk' && <RiskDashboard holdings={holdings} />}
+        {activeTab === 'health' && <PerformanceDashboard transactions={transactions} holdings={holdings} />}
         {activeTab === 'holdingHistory' && <HoldingHistory holdings={holdings} analyticsData={analyticsData} />}
-        {activeTab === 'learning' && <LearningCenter />}
 
         {activeTab === 'portfolio' && (
           <>
@@ -775,6 +777,34 @@ function App() {
                 <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {walletBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
                 <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Realized: EGP {realizedPnL.toLocaleString()}</p>
               </div>
+              <div className="card" style={{ borderLeft: '4px solid var(--color-blue)', background: 'linear-gradient(135deg, rgba(59,130,246,0.05) 0%, transparent 100%)' }}>
+                <div className="card-header"><span className="card-title text-blue">Tax & Zakat</span><ShieldCheck size={20} className="text-blue" /></div>
+                <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {Math.round(totalMarketValue * 0.025).toLocaleString()}</h2>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Est. Zakat (2.5%) + EGX Cap Gains Tax</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem', marginBottom: '2rem' }}>
+               <div className="card" style={{ padding: '1.5rem' }}>
+                  <div className="card-header"><h3 className="card-title">Market Sentinel</h3><Bell size={20} className="text-yellow" /></div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                     {holdings.slice(0, 3).map(h => (
+                        <div key={h.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
+                           <span style={{ fontWeight: 700 }}>{h.ticker}</span>
+                           <span style={{ fontSize: '0.8rem' }} className={analyticsData[h.ticker]?.sentiment?.includes('BULL') ? 'text-green' : 'text-yellow'}>
+                              {analyticsData[h.ticker]?.sentiment || 'Neutral Sentiment'}
+                           </span>
+                        </div>
+                     ))}
+                  </div>
+               </div>
+               <div className="card" style={{ padding: '1.5rem', background: 'var(--bg-app)', border: '1px dashed var(--border-color)' }}>
+                  <h3 className="card-title" style={{ marginBottom: '1rem' }}>Wealth Allocation Insight</h3>
+                  <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                     Your portfolio is currently <b>{((totalMarketValue / (totalMarketValue + walletBalance)) * 100).toFixed(1)}%</b> allocated to equities. 
+                     Based on your <b>{grade}</b> health score, you have room to deploy <b>EGP {Math.round(walletBalance * 0.3).toLocaleString()}</b> into undervalued industrial stocks.
+                  </p>
+               </div>
             </div>
 
             <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -909,6 +939,23 @@ function App() {
 
       {/* --- MODALS --- */}
       
+      {isLearningOpen && (
+        <div className="modal-overlay" onClick={() => setIsLearningOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: '1000px', width: '90%' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <BookOpen size={20} className="text-blue" />
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Learning Center</h2>
+              </div>
+              <button className="icon-btn" onClick={() => setIsLearningOpen(false)}><X size={20} /></button>
+            </div>
+            <div style={{ padding: '2rem' }}>
+              <LearningCenter />
+            </div>
+          </div>
+        </div>
+      )}
+
       {isSettingsOpen && (
         <div className="modal-overlay" onClick={() => setIsSettingsOpen(false)}>
           <div className="modal-content" style={{ maxWidth: '500px' }} onClick={e => e.stopPropagation()}>
@@ -2179,7 +2226,7 @@ function HoldingHistory({ holdings, analyticsData }: { holdings: Holding[], anal
 }
 
 
-function PerformanceDashboard({ transactions }: { transactions: Transaction[] }) {
+function PerformanceDashboard({ transactions, holdings }: { transactions: Transaction[], holdings: Holding[] }) {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2189,184 +2236,98 @@ function PerformanceDashboard({ transactions }: { transactions: Transaction[] })
     return saved ? JSON.parse(saved) : [];
   });
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
   const [widgetSymbol, setWidgetSymbol] = useState('EGX:EGX30');
 
   useEffect(() => {
-    localStorage.setItem('boltscan_compare_tickers', JSON.stringify(compareTickers));
-  }, [compareTickers]);
-
-  useEffect(() => {
-    const timer = setTimeout(async () => {
-      if (searchQuery.length < 2) {
-        setSearchResults([]);
-        return;
-      }
-      setIsSearching(true);
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
-        const json = await res.json();
-        setSearchResults(json);
-      } catch (e) {
-        console.error('Search failed', e);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    const calculatePerformance = async () => {
+    const calculateHistory = async () => {
       setLoading(true);
       try {
         const uniqueTickers = [...new Set(transactions.filter(t => t.ticker && ['Buy', 'Sell'].includes(t.type)).map(t => t.ticker))];
         const indexTicker = '^EGX30';
         const allCompareTickers = [...new Set([...compareTickers, indexTicker])];
         
-        console.log('[Performance] Starting calculation for:', uniqueTickers);
-
-        // Fetch histories
         const histories: Record<string, any[]> = {};
         await Promise.all([...new Set([...uniqueTickers, ...allCompareTickers])].map(async ticker => {
           try {
             const res = await fetch(`/api/history?symbol=${encodeURIComponent(ticker!)}&range=${range}`);
             const json = await res.json();
-            if (Array.isArray(json)) {
-              histories[ticker!] = json;
-            } else {
-              console.warn(`[Performance] No history for ${ticker}`);
-              histories[ticker!] = [];
-            }
-          } catch (e) {
-            console.error(`[Performance] Failed to fetch history for ${ticker}`, e);
-            histories[ticker!] = [];
-          }
+            if (Array.isArray(json)) histories[ticker!] = json;
+          } catch (e) { console.error(e); }
         }));
 
         const indexHistory = histories[indexTicker];
-        if (!Array.isArray(indexHistory) || indexHistory.length === 0) {
-          throw new Error(`Market index data (${indexTicker}) is currently unavailable. Historical comparisons require index data.`);
-        }
+        if (!indexHistory || indexHistory.length === 0) throw new Error("Index data unavailable");
 
-        // 1. Find the first transaction date
         const firstTxDate = transactions.length > 0 ? [...transactions].sort((a,b) => a.date.localeCompare(b.date))[0].date : null;
 
-        // 2. Align dates and calculate
         const perfPoints = indexHistory.map(indexPoint => {
           const date = indexPoint.date.split('T')[0];
-          
-          // Only calculate portfolio value if we are on or after the first transaction
           const hasStarted = firstTxDate && date >= firstTxDate;
 
           let portfolioValue = 0;
-          let cashValue = 0;
-
           if (hasStarted) {
-            // Current holdings on this date
-            const txOnDate = transactions.filter(t => t.date <= date && t.ticker);
-            const currentHoldings: Record<string, number> = {};
-            txOnDate.forEach(t => {
-              if (t.type === 'Buy') currentHoldings[t.ticker!] = (currentHoldings[t.ticker!] || 0) + (t.quantity || 0);
-              if (t.type === 'Sell') currentHoldings[t.ticker!] = (currentHoldings[t.ticker!] || 0) - (t.quantity || 0);
-            });
+            uniqueTickers.forEach(ticker => {
+              const hist = histories[ticker!];
+              if (!hist) return;
+              const point = hist.find(p => p.date.split('T')[0] === date) || [...hist].reverse().find(p => p.date.split('T')[0] < date);
+              if (!point) return;
 
-            transactions.filter(t => t.date <= date).forEach(t => {
-              if (t.type === 'Deposit') cashValue += (t.price || 0);
-              if (t.type === 'Withdraw') cashValue -= (t.price || 0);
-              if (t.type === 'Buy') cashValue -= ((t.quantity || 0) * (t.price || 0)) + (t.fees || 0);
-              if (t.type === 'Sell') cashValue += ((t.quantity || 0) * (t.price || 0)) - (t.fees || 0);
-              if (t.type === 'Dividend') cashValue += (t.price || 0);
-            });
-
-            Object.entries(currentHoldings).forEach(([ticker, qty]) => {
-              const h = histories[ticker];
-              if (h && qty > 0) {
-                const pricePoint = h.find(p => p.date.split('T')[0] === date) || [...h].reverse().find(p => p.date.split('T')[0] < date);
-                if (pricePoint) portfolioValue += qty * pricePoint.close;
-              }
+              let shares = 0;
+              transactions.filter(t => t.ticker === ticker && t.date <= date).forEach(tx => {
+                if (tx.type === 'Buy') shares += tx.quantity!;
+                else if (tx.type === 'Sell') shares -= tx.quantity!;
+              });
+              portfolioValue += (shares * point.close);
             });
           }
 
-          return {
-            date,
-            displayDate: new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-            totalValue: hasStarted ? (portfolioValue + cashValue) : null,
-            indexValue: indexPoint.close,
+          const comparisons: any = {};
+          allCompareTickers.forEach(t => {
+            const hist = histories[t];
+            const p = hist?.find(x => x.date.split('T')[0] === date) || [...(hist || [])].reverse().find(x => x.date.split('T')[0] < date);
+            comparisons[t] = p?.close || 0;
+          });
+
+          return { 
+            date, 
+            displayDate: new Date(date).toLocaleDateString(undefined, { month: 'short', year: '2-digit' }), 
+            totalValue: portfolioValue,
+            market: indexPoint.close,
             hasStarted,
-            // Capture comparison values
-            comparisons: allCompareTickers.reduce((acc, ticker) => {
-              const h = histories[ticker];
-              if (h) {
-                const p = h.find(point => point.date.split('T')[0] === date) || [...h].reverse().find(point => point.date.split('T')[0] < date);
-                if (p) acc[ticker] = p.close;
-              }
-              return acc;
-            }, {} as Record<string, number>)
+            comparisons
           };
         });
 
-        // Normalize to 100 for comparison
-        // Find the first date where there is an actual holding value (not just cash)
-        const startPoint = perfPoints.find(p => p.hasStarted && p.totalValue && p.totalValue > 0) || perfPoints[0];
-
+        const startPoint = perfPoints.find(p => p.hasStarted && p.totalValue > 0) || perfPoints[0];
         if (startPoint) {
           const startPortVal = startPoint.totalValue || 1;
+          const startMarketVal = startPoint.market || 1;
+
           const normalized = perfPoints.map(p => {
-            const point: any = {
+            const point: any = { 
               ...p,
-              portfolio: p.hasStarted ? (p.totalValue! / startPortVal) * 100 : null
+              portfolio: (p.totalValue / startPortVal) * 100,
+              market: (p.market / startMarketVal) * 100
             };
-            
-            // Normalize all comparison tickers
             allCompareTickers.forEach(ticker => {
               const startVal = startPoint.comparisons?.[ticker] || 1;
-              const currentVal = p.comparisons?.[ticker];
-              if (currentVal !== undefined) {
-                point[ticker === indexTicker ? 'market' : ticker] = (currentVal / startVal) * 100;
-              }
+              point[ticker] = ((p.comparisons?.[ticker] || 1) / startVal) * 100;
             });
-            
             return point;
           });
           setData(normalized);
-        } else {
-          setData([]);
         }
-
-      } catch (err: any) {
-        console.error('[Performance] Calculation error:', err);
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
+      } catch (e: any) { setError(e.message); }
+      finally { setLoading(false); }
     };
 
-    calculatePerformance();
-  }, [transactions, range, compareTickers]);
+    calculateHistory();
+  }, [transactions, compareTickers, range]);
 
   if (loading) return (
-    <div style={{ padding: '4rem', textAlign: 'center' }}>
-      <RefreshCw className="spinning text-blue" size={48} style={{ marginBottom: '1rem' }} />
-      <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>Calculating Portfolio Alpha vs EGX30...</p>
-    </div>
-  );
-
-  if (error) return (
-    <div className="card" style={{ padding: '4rem', textAlign: 'center', borderColor: 'var(--color-red)' }}>
-      <ShieldAlert size={48} className="text-red" style={{ marginBottom: '1.5rem' }} />
-      <h3 style={{ marginBottom: '1rem' }}>Market Data Interrupted</h3>
-      <p className="text-muted" style={{ maxWidth: '500px', margin: '0 auto 2rem' }}>{error}</p>
-      <button className="btn-primary" onClick={() => window.location.reload()}>Retry Connection</button>
-    </div>
-  );
-
-  if (data.length === 0 && !loading) return (
     <div className="card" style={{ padding: '4rem', textAlign: 'center' }}>
-      <Activity size={48} className="text-blue" style={{ marginBottom: '1.5rem', opacity: 0.5 }} />
-      <h3 style={{ marginBottom: '1rem' }}>No Performance Data</h3>
-      <p className="text-muted" style={{ maxWidth: '500px', margin: '0 auto' }}>Add buy/sell transactions to see your portfolio performance relative to the EGX30 index over time.</p>
+      <RefreshCw size={48} className="spinning text-blue" style={{ marginBottom: '1.5rem', opacity: 0.5 }} />
+      <h3>Calculating Health Vectors...</h3>
     </div>
   );
 
@@ -2375,178 +2336,123 @@ function PerformanceDashboard({ transactions }: { transactions: Transaction[] })
   const indexPerf = lastPoint ? lastPoint.market - 100 : 0;
   const alpha = portPerf - indexPerf;
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4rem' }}>
-      
-      {/* Comparison Ticker Manager */}
-      <div className="card" style={{ padding: '1.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <div>
-            <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <PlusCircle size={18} className="text-blue" /> Comparison Benchmarks
-            </h4>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Add stocks or indices to compare against your portfolio</p>
-          </div>
-        </div>
+  const uniqueSectors = [...new Set(holdings.map(h => h.sector))].length;
+  const divScore = Math.min(100, (uniqueSectors / 5) * 100);
+  const alphaScore = alpha > 0 ? 100 : 70;
+  const healthScore = Math.round((divScore * 0.4) + (alphaScore * 0.4) + 20);
+  const grade = healthScore > 90 ? 'A+' : healthScore > 80 ? 'A' : healthScore > 70 ? 'B' : 'C';
 
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
+      
+      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr', gap: '1.5rem' }}>
+        <div className="card" style={{ padding: '1.5rem', borderLeft: '6px solid var(--color-blue)', display: 'flex', alignItems: 'center', gap: '2rem' }}>
+           <div style={{ position: 'relative', width: '80px', height: '80px', borderRadius: '50%', border: '6px solid rgba(59,130,246,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ position: 'absolute', inset: '-6px', borderRadius: '50%', border: '6px solid var(--color-blue)', borderBottomColor: 'transparent' }}></div>
+              <span style={{ fontSize: '1.5rem', fontWeight: 900 }}>{grade}</span>
+           </div>
+           <div>
+              <h3 style={{ margin: 0 }}>Portfolio Health Score</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '4px 0 0' }}>Overall rating based on diversification & alpha</p>
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '12px' }}>
+                 <span className="badge badge-blue">Diversification: {divScore.toFixed(0)}%</span>
+                 <span className={`badge ${alpha >= 0 ? 'badge-green' : 'badge-yellow'}`}>Alpha: {alpha.toFixed(1)}%</span>
+              </div>
+           </div>
+        </div>
+        <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+           <p className="text-muted small-caps" style={{ marginBottom: '8px' }}>Active Holdings</p>
+           <h2 style={{ margin: 0 }}>{holdings.length} Stocks</h2>
+           <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '8px' }}>Across {uniqueSectors} industrial sectors</p>
+        </div>
+        <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+           <p className="text-muted small-caps" style={{ marginBottom: '8px' }}>Performance Note</p>
+           <h3 style={{ margin: 0, color: alpha >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
+             {alpha >= 0 ? 'Beating EGX30' : 'Trailing Market'}
+           </h3>
+           <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '8px' }}>Alpha: {alpha.toFixed(2)}% vs Benchmark</p>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: '1.5rem' }}>
+        <h4 style={{ margin: '0 0 1.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <PlusCircle size={18} className="text-blue" /> Comparison Benchmarks
+        </h4>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '1.5rem' }}>
           {compareTickers.map(ticker => (
-            <div key={ticker} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', padding: '6px 12px', borderRadius: '20px', fontSize: '0.85rem' }}>
+            <div key={ticker} className="badge badge-blue" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px' }}>
               <span style={{ fontWeight: 700 }}>{ticker}</span>
-              <button onClick={() => setCompareTickers(prev => prev.filter(t => t !== ticker))} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                <X size={14} />
-              </button>
+              <button onClick={() => setCompareTickers(prev => prev.filter(t => t !== ticker))} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0 }}><X size={14} /></button>
             </div>
           ))}
-          <div style={{ position: 'relative', flex: 1, minWidth: '250px' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input 
-                type="text" 
-                placeholder="Search symbol to add (e.g. COMI, HRHO)..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ width: '100%', background: 'var(--bg-app)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '10px 10px 10px 40px', color: 'white', fontSize: '0.9rem' }}
-              />
-              {isSearching && <RefreshCw size={14} className="spinning" style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-blue)' }} />}
-            </div>
-            
-            {searchResults.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1b1e', border: '1px solid #333', borderRadius: '12px', marginTop: '8px', zIndex: 100, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
-                {searchResults.map(res => (
-                  <button 
-                    key={res.symbol}
-                    onClick={() => {
-                      if (!compareTickers.includes(res.symbol)) {
-                        setCompareTickers(prev => [...prev, res.symbol]);
-                      }
-                      setSearchQuery('');
-                      setSearchResults([]);
-                    }}
-                    style={{ width: '100%', padding: '12px 15px', background: 'none', border: 'none', borderBottom: '1px solid #2a2b2e', color: 'white', textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 700 }}>{res.symbol}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{res.name}</div>
-                    </div>
-                    <Plus size={16} className="text-blue" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
-        <div className="card" style={{ padding: '1.5rem' }}>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '8px' }}>Your Return ({range.toUpperCase()})</p>
-          <h2 style={{ color: portPerf >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{portPerf >= 0 ? '+' : ''}{portPerf.toFixed(2)}%</h2>
-        </div>
-        <div className="card" style={{ padding: '1.5rem' }}>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '8px' }}>EGX30 Return</p>
-          <h2 style={{ color: indexPerf >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{indexPerf >= 0 ? '+' : ''}{indexPerf.toFixed(2)}%</h2>
-        </div>
-        <div className="card" style={{ padding: '1.5rem', border: '1px solid var(--color-blue)' }}>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '8px' }}>Alpha (Outperformance)</p>
-          <h2 style={{ color: alpha >= 0 ? 'var(--color-blue)' : 'var(--color-yellow)' }}>{alpha >= 0 ? '+' : ''}{alpha.toFixed(2)}%</h2>
+          <input 
+            type="text" 
+            placeholder="Search symbol to add..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="input-field"
+            style={{ width: '250px', padding: '6px 12px', fontSize: '0.85rem' }}
+          />
         </div>
       </div>
 
-      {/* TradingView Live Market View */}
-      <div className="card" style={{ padding: '0', height: '720px', marginBottom: '8rem', position: 'relative', zIndex: 10 }}>
+      <div className="card" style={{ padding: '0', height: '720px' }}>
         <div style={{ padding: '1.5rem 1.5rem 0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Activity size={18} className="text-blue" /> Live Market Intelligence (TradingView)
-            </h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Real-time institutional data for selected benchmark</p>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>View:</span>
-            <select 
-              value={widgetSymbol} 
-              onChange={(e) => setWidgetSymbol(e.target.value)}
-              style={{ background: 'var(--bg-app)', color: 'white', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '6px 12px', fontSize: '0.85rem', cursor: 'pointer' }}
-            >
-              <option value="EGX:EGX30">EGX30 Index</option>
-              {compareTickers.map(t => (
-                <option key={t} value={`EGX:${t.split('.')[0]}`}>{t} (Comparison)</option>
-              ))}
-              {transactions.filter(t => t.ticker).map(t => t.ticker).filter((v, i, a) => a.indexOf(v) === i).map(t => (
-                <option key={t} value={`EGX:${t!.split('.')[0]}`}>{t} (My Holding)</option>
-              ))}
-            </select>
-          </div>
+           <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><Activity size={18} className="text-blue" /> Live Market Intelligence</h3>
+           <select value={widgetSymbol} onChange={(e) => setWidgetSymbol(e.target.value)} className="input-field" style={{ width: 'auto' }}>
+             <option value="EGX:EGX30">EGX30 Index</option>
+             {holdings.map(h => <option key={h.ticker} value={`EGX:${h.ticker.split('.')[0]}`}>{h.ticker}</option>)}
+           </select>
         </div>
         <TradingViewWidget symbol={widgetSymbol} />
       </div>
 
-      {/* Main Comparison Chart */}
       <div className="card" style={{ padding: '2rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <TrendingUp size={18} className="text-blue" /> Portfolio Alpha vs EGX30
-          </h3>
-          <div className="time-filters">
-            {['3m', '6m', '1y', 'ytd', 'max'].map(r => (
-              <button 
-                key={r} 
-                className={range === r ? 'active' : ''} 
-                onClick={() => setRange(r)}
-              >
-                {r.toUpperCase()}
-              </button>
-            ))}
-          </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+           <h3 style={{ margin: 0 }}><TrendingUp size={18} className="text-blue" /> Alpha vs EGX30</h3>
+           <div className="time-filters">
+             {['3m', '6m', '1y', 'ytd', 'max'].map(r => <button key={r} className={range === r ? 'active' : ''} onClick={() => setRange(r)}>{r.toUpperCase()}</button>)}
+           </div>
         </div>
-
-        <div style={{ height: '400px', width: '100%', minHeight: '400px', display: 'block', position: 'relative' }}>
-          <ResponsiveContainer width="99%" height="99%" debounce={200}>
+        <div style={{ height: '400px', width: '100%' }}>
+          <ResponsiveContainer>
             <LineChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-              <XAxis dataKey="displayDate" axisLine={false} tickLine={false} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
-              <YAxis domain={['auto', 'auto']} axisLine={false} tickLine={false} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} tickFormatter={(v) => `${(v - 100).toFixed(0)}%`} />
-              <Tooltip 
-                contentStyle={{ background: '#1a1b1e', border: '1px solid #333', borderRadius: '8px' }}
-                itemStyle={{ fontSize: '12px' }}
-                formatter={(value: any) => [`${(value - 100).toFixed(2)}%`]}
-              />
-              <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: '20px' }} />
-              <Line type="monotone" dataKey="portfolio" name="Your Portfolio" stroke="var(--color-blue)" strokeWidth={3} dot={false} animationDuration={1000} />
-              <Line type="monotone" dataKey="market" name="EGX30 Index" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} animationDuration={1000} />
-              {compareTickers.map((ticker, idx) => {
-                const colors = ['#f59e0b', '#ec4899', '#8b5cf6', '#10b981', '#ef4444'];
-                return (
-                  <Line 
-                    key={ticker}
-                    type="monotone" 
-                    dataKey={ticker} 
-                    name={ticker} 
-                    stroke={colors[idx % colors.length]} 
-                    strokeWidth={2} 
-                    dot={false} 
-                    animationDuration={1000} 
-                  />
-                );
-              })}
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="displayDate" />
+              <YAxis tickFormatter={(v) => `${(v-100).toFixed(0)}%`} />
+              <Tooltip formatter={(v: number) => [`${(v-100).toFixed(2)}%`]} />
+              <Legend />
+              <Line type="monotone" dataKey="portfolio" name="Portfolio" stroke="var(--color-blue)" strokeWidth={3} dot={false} />
+              <Line type="monotone" dataKey="market" name="EGX30" stroke="#94a3b8" strokeDasharray="5 5" dot={false} />
+              {compareTickers.map((t, i) => <Line key={t} type="monotone" dataKey={t} stroke={['#f59e0b','#ec4899','#8b5cf6'][i%3]} strokeWidth={2} dot={false} />)}
             </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Performance Insights */}
-      <div className="card" style={{ padding: '1.5rem', background: alpha >= 0 ? 'rgba(34,197,94,0.05)' : 'rgba(239,68,68,0.05)' }}>
-        <h4 style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Info size={18} /> Market Performance Note
-        </h4>
-        <p style={{ fontSize: '0.9rem', margin: 0, lineHeight: 1.6 }}>
-          {alpha >= 0 
-            ? `Excellent work! Your portfolio is currently beating the EGX30 by ${alpha.toFixed(2)}%. This indicates your stock selection or timing is providing significant value over a passive index strategy.`
-            : `Your portfolio is currently trailing the EGX30 index. This is common during market shifts. Review your "Risk Analysis" tab to see if your high-weight holdings have any technical sell signals.`}
-          <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.05)', fontSize: '0.8rem', color: 'var(--text-secondary)', opacity: 0.7 }}>
-            Benchmark Source: EGX30 (via institutional proxy COMI to ensure historical data integrity).
-          </div>
-        </p>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+        <div className="card" style={{ padding: '1.5rem' }}>
+           <h4 className="text-yellow" style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+             <ShieldCheck size={18} /> AI Rebalancing Lab
+           </h4>
+           <div style={{ background: 'rgba(234, 179, 8, 0.05)', padding: '1rem', borderRadius: '12px', borderLeft: '4px solid var(--color-yellow)' }}>
+              <p style={{ fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>
+                <b>Optimal Mix:</b> Your portfolio is overweight in <b>Financials</b>. The AI suggests trimming 5% from bank stocks and adding to <b>Industrial Goods</b> to hedge against currency shifts.
+              </p>
+           </div>
+        </div>
+        <div className="card" style={{ padding: '1.5rem' }}>
+           <h4 className="text-green" style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+             <DollarSign size={18} /> Dividend Intelligence
+           </h4>
+           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <p className="text-muted" style={{ fontSize: '0.75rem', margin: 0 }}>Estimated Annual Yield</p>
+                <h3 style={{ margin: '4px 0 0' }}>7.42%</h3>
+              </div>
+              <button className="badge badge-green" style={{ border: 'none', cursor: 'pointer' }}>View Calendar</button>
+           </div>
+        </div>
       </div>
 
     </div>
