@@ -6,7 +6,7 @@ import {
 import { 
   ArrowUpRight, ArrowDownRight, RefreshCw, AlertTriangle, 
   Wallet, DollarSign, Activity, CheckCircle2, Clock, Plus, PlusCircle, Trash2, X, Search, TrendingUp,
-  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Eye, Settings as SettingsIcon, ShieldCheck, BookOpen
+  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Eye, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell
 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line } from 'recharts';
 import './index.css';
