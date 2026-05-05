@@ -800,8 +800,6 @@ function App() {
                     <th onClick={() => requestSort('livePrice')} style={{ cursor: 'pointer', textAlign: 'right' }}>Live Price <SortIndicator column="livePrice" /></th>
                     <th style={{ textAlign: 'right' }}>Market Value</th>
                     <th style={{ textAlign: 'right' }}>P&L</th>
-                    <th style={{ textAlign: 'center' }}>Sentiment</th>
-                    <th style={{ textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -821,16 +819,6 @@ function App() {
                         <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
                           <div>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
                           <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>{pnl >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%</div>
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <span className={`badge ${analyticsData[h.ticker]?.sentiment?.includes('BULL') ? 'badge-green' : analyticsData[h.ticker]?.sentiment?.includes('BEAR') ? 'badge-red' : 'badge-yellow'}`}>
-                            {analyticsData[h.ticker]?.sentiment || '-'}
-                          </span>
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <button className="icon-btn" onClick={() => setAnalysisStock(h)} title="View AI Intelligence"><Eye size={16} className="text-blue" /></button>
-                          <button className="icon-btn" onClick={() => setPriceHistoryStock(h)} title="Price Performance"><TrendingUp size={16} className="text-green" /></button>
-                          <button className="icon-btn" onClick={() => setHistoryStock(h.ticker)} title="Transaction History"><Clock size={16} className="text-blue" /></button>
                         </td>
                       </tr>
                     );
