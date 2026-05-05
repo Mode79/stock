@@ -30,3 +30,7 @@ dist-ssr
 
 # Scratch directory
 scratch/
+
+# Database
+*.db
+*.sqlite

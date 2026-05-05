@@ -79,39 +79,63 @@ ${response}
     fs.appendFileSync(path.join(process.cwd(), 'ai_interactions.log'), logEntry, 'utf8');
   }
 
-  async function callAI(provider: string, model: string, key: string, prompt: string) {
-    if (provider === 'openai') {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${key || OPENAI_KEY_ENV}`
-        },
-        body: JSON.stringify({
-          model: model || 'gpt-4o',
-          messages: [{ role: 'user', content: prompt }],
-          response_format: { type: 'json_object' }
-        })
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
-      return data.choices[0].message.content;
-    } else {
-      // Gemini
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-2.0-flash'}:generateContent?key=${key || GEMINI_KEY_ENV}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { response_mime_type: "application/json" }
-        })
-      });
-      const data = await res.json();
-      if (data.error) {
-        console.error(`[AI Error - ${provider}]`, data.error);
-        throw new Error(data.error.message || JSON.stringify(data.error));
+  async function callAI(provider: string, model: string, key: string, prompt: string, retryCount = 0): Promise<string> {
+    try {
+      if (provider === 'openai') {
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${key || OPENAI_KEY_ENV}`
+          },
+          body: JSON.stringify({
+            model: model || 'gpt-4o',
+            messages: [{ role: 'user', content: prompt }],
+            response_format: { type: 'json_object' }
+          })
+        });
+        const data = await res.json();
+        if (data.error) {
+          if (data.error.code === 'insufficient_quota' || data.error.code === 'rate_limit_exceeded') {
+             if (retryCount < 1) {
+               console.log(`[AI Proxy] Quota hit on ${provider}. Retrying in 2s...`);
+               await new Promise(r => setTimeout(r, 2000));
+               return callAI(provider, model, key, prompt, retryCount + 1);
+             }
+          }
+          throw new Error(data.error.message);
+        }
+        return data.choices[0].message.content;
+      } else {
+        // Gemini
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-2.0-flash'}:generateContent?key=${key || GEMINI_KEY_ENV}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { response_mime_type: "application/json" }
+          })
+        });
+        const data = await res.json();
+        if (data.error) {
+          if (data.error.status === 'RESOURCE_EXHAUSTED' || data.error.code === 429) {
+             if (retryCount < 2) {
+               console.log(`[AI Proxy] Quota hit on Gemini. Retrying in 3s...`);
+               await new Promise(r => setTimeout(r, 3000));
+               return callAI(provider, model, key, prompt, retryCount + 1);
+             }
+          }
+          console.error(`[AI Error - ${provider}]`, data.error);
+          throw new Error(data.error.message || JSON.stringify(data.error));
+        }
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
       }
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    } catch (e: any) {
+      if (retryCount < 1) {
+        await new Promise(r => setTimeout(r, 1000));
+        return callAI(provider, model, key, prompt, retryCount + 1);
+      }
+      throw e;
     }
   }
 
@@ -189,11 +213,11 @@ ${response}
 
                   console.log(`[AI Proxy] Single Analysis | Provider: ${provider} | Model: ${model} | Ticker: ${ticker}`);
 
-                  const prompt = `Analyze stock: ${ticker} (${company})
+                  const prompt = `Act as a senior financial analyst (CFA-level) and an educator for a non-expert investor.
+Analyze stock: ${ticker} (${company})
 
-Act as a senior financial analyst with CFA-level expertise and as a teacher for a non-expert investor.
-Perform a full-spectrum stock analysis using the most recent reliable data available. 
-Explain everything in simple language. Do not assume I understand finance.
+OBJECTIVE:
+Provide a full-spectrum stock analysis in SIMPLE LANGUAGE for a NON-EXPERT.
 
 Current Data:
 - Price: EGP ${stats?.currentPrice || 'N/A'}
@@ -203,28 +227,19 @@ Current Data:
 - Recent Prices: ${(history || []).slice(-10).map((h:any) => h.close).join(', ')}
 
 Structure your response following these sections:
-# 1. Company Snapshot
-# 2. Decision Dashboard
-# 3. Fundamental Analysis
-# 4. Key Financial Ratios
-# 5. Valuation Analysis
-# 6. Growth Analysis
-# 7. Competitive & Industry Analysis
-# 8. Market & Macro Analysis
-# 9. Technical Analysis
-# 10. Sentiment Analysis
-# 11. Risk Analysis
-# 12. Management & Governance
-# 13. Dividend Analysis
-# 14. Scenario Analysis
-# 15. Investment Strategy
-# 16. Final Recommendation
-# 17. Data Quality & Confidence
+1. COMPANY SNAPSHOT (Overview of business)
+2. DECISION DASHBOARD (Ratings & Quick Decision)
+3. FUNDAMENTAL ANALYSIS (Revenue, Profit, Cash Flow)
+4. KEY RATIOS (P/E, ROE, Debt/Equity with explanations)
+5. VALUATION (Fair value estimate, Base/Bull/Bear cases)
+6. TECHNICAL ANALYSIS (Trend, Support, Resistance)
+7. RISK ANALYSIS (Company, Market, Red Flags)
+8. FINAL RECOMMENDATION (Buy/Hold/Sell, Entry/Exit zones)
 
-Rules:
+RULES:
 - Do not give generic answers. Use actual numbers.
 - Explain terms in simple language.
-- Return the final output as a valid JSON object with these keys: 
+- RETURN THE FINAL OUTPUT AS A VALID JSON OBJECT WITH THESE KEYS: 
   "sentiment", "sentiment_ar", 
   "recommendation", "recommendation_ar", 
   "narrative", "narrative_ar", 
@@ -232,6 +247,7 @@ Rules:
   "key_metrics" (array of strings), 
   "risks" (array of strings), 
   "catalysts" (array of strings).
+  
 Return ONLY the JSON. No markdown outside the JSON.`;
 
                   if (isLoggingEnabled) logAIInteraction(`Single Analysis: ${ticker} [REQUEST]`, provider, model || 'default', prompt, 'WAITING...');
@@ -319,7 +335,7 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                    7. Risks & Red Flags
                    
                    Format the output as a SINGLE JSON object where keys are EXACTLY the ticker symbols and values are objects with:
-                   "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "targetPrice".
+                   "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "targetPrice", "narrative", "narrative_ar", "key_metrics" (array of strings).
                    
                    Return ONLY the JSON. No markdown tags.`;
 
@@ -355,21 +371,34 @@ Return ONLY the JSON. No markdown outside the JSON.`;
 
               try {
                 let quotes = [];
+                const fullSymbol = (symbol.startsWith('^') || symbol.includes('.')) ? symbol : `${symbol}.CA`;
                 if (range === '1d' || range === '1w') {
                   try {
-                    const chartData = await yf.chart(`${symbol}.CA`, { range: range === '1d' ? '1d' : '5d', interval: range === '1d' ? '2m' : '15m' });
+                    const chartData = await yf.chart(fullSymbol, { range: range === '1d' ? '1d' : '5d', interval: range === '1d' ? '2m' : '15m' });
+                    let details = { sector: 'Other', industry: 'Other' };
+                    try {
+                      // Fetch full quote for more details if needed
+                      const quote = await yf.quote(fullSymbol);
+                      details = {
+                        sector: (quote as any).sector || (quote as any).category || 'Other',
+                        industry: (quote as any).industry || 'Other'
+                      };
+                    } catch (qErr) {
+                      console.warn(`[Proxy] Metadata fetch failed for ${fullSymbol}, continuing...`);
+                    }
                     quotes = chartData.quotes.map((q: any) => ({ 
                       date: q.date, 
                       open: q.open,
                       high: q.high,
                       low: q.low,
                       close: q.close || q.adjclose,
-                      volume: q.volume
+                      volume: q.volume,
+                      ...details
                     }));
                   } catch (chartErr) {
                     const period1 = new Date();
                     period1.setDate(period1.getDate() - (range === '1d' ? 1 : 7));
-                    const histData = await yf.historical(`${symbol}.CA`, { period1, period2: new Date(), interval: '1d' });
+                    const histData = await yf.historical(fullSymbol, { period1, period2: new Date(), interval: '1d' });
                     quotes = histData.map((q: any) => ({ 
                       date: q.date, 
                       open: q.open,
@@ -390,15 +419,63 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                   else if (range === '5y') period1.setFullYear(now.getFullYear() - 5);
                   else period1 = new Date(1970, 0, 1);
 
-                  const histData = await yf.historical(`${symbol}.CA`, { period1, period2: now, interval: (range === '5y' || range === 'max') ? '1mo' : '1d' });
-                  quotes = histData.map((q: any) => ({ 
-                    date: q.date, 
-                    open: q.open,
-                    high: q.high,
-                    low: q.low,
-                    close: q.close || q.adjclose,
-                    volume: q.volume
-                  }));
+                  try {
+                    const histData = await yf.historical(fullSymbol, { period1, period2: now, interval: (range === '5y' || range === 'max') ? '1mo' : '1d' });
+                    quotes = histData.map((q: any) => ({ 
+                      date: q.date, 
+                      open: q.open,
+                      high: q.high,
+                      low: q.low,
+                      close: q.close || q.adjclose,
+                      volume: q.volume
+                    }));
+                  } catch (hErr: any) {
+                    // Fallback for EGX30 index if primary ticker fails
+                    if (fullSymbol === '^CASE30' || fullSymbol === '^EGX30' || fullSymbol === 'CASE.CA' || fullSymbol === 'EGX30.CA') {
+                      console.log(`[Proxy] Index fetch failed (${fullSymbol}), trying robust fallbacks...`);
+                      const fallbacks = ['COMI.CA', '^CASE30', '^EGX30', 'CASE.CA', 'EGX30.CA', 'CASE', 'EGX30'];
+                      for (const fb of fallbacks) {
+                        try {
+                          console.log(`[Proxy] Trying fallback: ${fb}`);
+                          // Try chart() first as it's more reliable for indices on some Yahoo servers
+                          const fbData = await yf.chart(fb, { period1: period1, interval: '1d' });
+                          if (fbData && fbData.quotes && fbData.quotes.length > 5) {
+                            quotes = fbData.quotes.map((q: any) => ({ 
+                              date: q.date, 
+                              open: q.open,
+                              high: q.high,
+                              low: q.low,
+                              close: q.close || q.adjclose,
+                              volume: q.volume
+                            }));
+                            console.log(`[Proxy] Success with ${fb} (chart) - ${quotes.length} points`);
+                            break;
+                          }
+                        } catch (e) {
+                          try {
+                            const fbData = await yf.historical(fb, { period1: period1, period2: now, interval: '1d' });
+                            if (fbData && fbData.length > 5) {
+                              quotes = fbData.map((q: any) => ({ 
+                                date: q.date, 
+                                open: q.open,
+                                high: q.high,
+                                low: q.low,
+                                close: q.close || q.adjclose,
+                                volume: q.volume
+                              }));
+                              console.log(`[Proxy] Success with ${fb} (historical) - ${quotes.length} points`);
+                              break;
+                            }
+                          } catch (e2) {
+                            continue;
+                          }
+                        }
+                      }
+                      if (quotes.length === 0) throw new Error(`All index fallbacks failed: ${hErr.message}`);
+                    } else {
+                      throw hErr;
+                    }
+                  }
                 }
                 res.setHeader('Content-Type', 'application/json');
                 res.end(JSON.stringify(quotes.filter((q: any) => q.close != null)));
@@ -416,7 +493,7 @@ Return ONLY the JSON. No markdown outside the JSON.`;
               req.on('end', async () => {
                 try {
                   const parsed = JSON.parse(body);
-                  const tickers: string[] = parsed.tickers || [];
+                  const tickers: string[] = (parsed.tickers || []).map((t: string) => t.trim().toUpperCase());
                   if (tickers.length === 0) return res.writeHead(400).end('Missing tickers');
                   console.log(`[AI Proxy] Fetching quotes for: ${tickers.join(', ')}`);
                   const tvTickers = tickers.map((t: string) => `EGX:${t.replace('.CA', '')}`);

@@ -1,27 +1,26 @@
-# Thunder Pro: EGX Intelligence Portfolio Tracker
+# BoltScan: Institutional EGX Intelligence & Portfolio Suite
 
-Thunder Pro is a high-performance, real-time portfolio management system specifically designed for the Egyptian Stock Exchange (EGX). It combines institutional-grade market data with Google Gemini AI to provide deep insights, automated technical analysis, and transaction tracking.
+BoltScan is a high-performance, professional-grade portfolio management and market intelligence system designed for the Egyptian Stock Exchange (EGX). It bridges the gap between retail trading and institutional analysis using advanced AI, real-time data streaming, and predictive modeling.
 
 ## 🚀 System Architecture
 
-The application follows a modern, decoupled architecture with a lightweight proxy layer to bridge client-side interactions with external financial and AI services.
+BoltScan utilizes a sophisticated multi-tier architecture designed for low-latency data processing and robust persistence.
 
-### 1. Frontend Layer (React & Vite)
-- **Single Page Application (SPA)** built with React 19 and TypeScript.
-- **Reactive State Management**: Handles real-time portfolio recalculations and live price streaming.
-- **Persistence**: Transactions are persisted locally using `localStorage` for privacy and offline access.
-- **Visualization**: Powered by `Recharts` for sophisticated technical analysis charts (Area, Bar, and Pie charts).
+### 1. Frontend Layer (React 19 & Vite)
+- **High-Performance Rendering**: Built with React 19 for reactive UI updates and seamless tab transitions.
+- **Institutional Visuals**: Custom CSS architecture focusing on "Glassmorphism" and high-contrast financial data visualization.
+- **Persistence Layer**: Dual-sync architecture using **SQLite** for transaction integrity and **localStorage** for UI preferences and persistent benchmarks.
+- **Visualization Engine**: Sophisticated charting powered by **Recharts** and the **TradingView Advanced Chart Library**.
 
-### 2. Integration Layer (Vite Dev Proxy)
-The system uses a custom middleware integrated directly into the Vite development server to handle API orchestration and security:
-- **Quote Aggregator**: Merges data from TradingView and Yahoo Finance to ensure maximum ticker coverage for EGX stocks.
-- **AI Gateway**: Bridges the frontend with the Google Gemini 3 Flash model, handling prompt engineering and response standardization.
-- **Historical Engine**: Fetches and formats technical time-series data for the charting engine.
+### 2. Intelligent Backend (Vite Middleware & SQLite)
+- **Database Engine**: Integrated **SQLite** database for enterprise-grade transaction tracking, AI analysis history, and metadata persistence.
+- **AI Gateway**: A dual-provider bridge supporting **Google Gemini (Flash 2.0)** and **OpenAI (GPT-4o)** for market forecasting and narrative generation.
+- **Proxy Orchestrator**: Handles real-time quote aggregation from Yahoo Finance and TradingView symbols (e.g., COMI.CA, ^EGX30).
 
-### 3. External Data Providers
-- **TradingView**: Primary source for real-time EGX scanner data and sector classification.
-- **Yahoo Finance**: Secondary source for historical price data and asset metadata.
-- **Google Gemini API**: Generative AI engine used for neural-based market forecasting.
+### 3. Data Providers & Integrations
+- **TradingView**: Powers the "Live Market Intelligence" panel with institutional scanners and technical analysis toolbars.
+- **Yahoo Finance API**: Supplies deep historical time-series data for performance benchmarking and P&L reconstruction.
+- **Sharia Compliance Engine**: Automated screening for Sharia-compliant symbols based on financial ratios.
 
 ---
 
@@ -29,66 +28,54 @@ The system uses a custom middleware integrated directly into the Vite developmen
 
 | Category | Technology |
 | :--- | :--- |
-| **Framework** | [React 19](https://react.dev/) |
-| **Build Tool** | [Vite 8](https://vitejs.dev/) |
-| **Language** | [TypeScript](https://www.typescriptlang.org/) |
-| **Styling** | Vanilla CSS (Modern CSS Variables & Grid) |
-| **Charts** | [Recharts](https://recharts.org/) |
-| **Icons** | [Lucide React](https://lucide.dev/) |
-| **AI Engine** | Google Gemini 3 Flash Preview |
-| **Market Data** | TradingView & Yahoo Finance |
+| **Framework** | React 19 (Latest) |
+| **Build Tool** | Vite 8 |
+| **Language** | TypeScript |
+| **Database** | SQLite (Persistent Backend) |
+| **AI Providers** | Google Gemini & OpenAI |
+| **Charting** | TradingView Advanced & Recharts |
+| **Styling** | Professional Vanilla CSS (Modern Variables) |
+| **Icons** | Lucide React |
 
 ---
 
-## 🧩 Core Components
+## 🧩 Premium Features
 
-### 📈 Portfolio Dashboard
-The central hub for financial overview. It calculates:
-- **Equity**: Total market value of current holdings.
-- **Unrealized P&L**: Profit/Loss based on live prices vs. average cost.
-- **Wallet**: Available cash balance updated by deposits, withdrawals, and dividends.
+### 🏛️ Institutional Market Intelligence
+- **TradingView Advanced Chart**: Full technical analysis suite with 1D/1W/1M/YTD resolutions and institutional toolbars.
+- **Real-time EGX30 Benchmarking**: Live tracking of the Egyptian index with high-fidelity fallback proxies.
 
-### 🧠 AI Intelligence Reports
-The standout feature that generates deep neural analysis for any holding. It provides:
-- **Directional Sentiment**: (e.g., Aggressive Bullish, Neutral).
-- **Target Price Forecasting**: 3-month outlook powered by Gemini.
-- **Automated Technicals**: RSI (Relative Strength Index) and SMA50 (50-Day Moving Average) calculation.
-- **Actionable Narratives**: 3-4 sentences of institutional-grade strategic advice.
+### 🧠 AI Strategy & Analysis
+- **One-Shot Global Analysis**: Batch-processes your entire portfolio and watchlist in a single AI run, updating sentiment, targets, and risks.
+- **Multi-Model Support**: Toggle between Gemini and OpenAI models based on analysis needs.
+- **Narrative Intelligence**: Generates human-readable strategic advice for every asset.
 
-### 🕒 Transaction Engine
-A robust system for recording financial history:
-- Support for **Buy, Sell, Deposit, Withdraw,** and **Dividend** events.
-- Automatic cost-basis adjustment (Weighted Average Cost).
-- Smart ticker search with real-time EGX suggestions.
+### 📊 Performance Analytics
+- **Unrealized P&L Trend**: High-resolution (1W, 1M, YTD) historical P&L reconstruction since your first purchase.
+- **Alpha Tracking**: Dynamic multi-symbol comparison manager that normalizes benchmarks to your portfolio's inception date.
 
-### 📊 Advanced Charting
-Interactive modals that display:
-- **Multi-range timeframes**: (1D, 1W, 1M, 3M, 1Y, 5Y).
-- **Dynamic Gradients**: Visual P&L indicators based on price movement.
-- **Real-time Tooltips**: Precision data points for price action analysis.
+### 🧪 Simulation & Education
+- **Simulation Lab**: "What-If" purchase simulator to calculate average-cost improvements before committing capital.
+- **Learning Center**: A comprehensive encyclopedia for market terminology, technical indicators, and buy/sell judgment criteria.
 
 ---
 
-## ⚙️ Setup & Installation
+## ⚙️ Setup & Configuration
 
-1. **Environment Variables**:
-   Create a `.env` file in the root directory:
+1. **Environment Initialization**:
+   Create a `.env` file:
    ```env
-   VITE_GEMINI_API_KEY=your_google_ai_key_here
+   VITE_GEMINI_API_KEY=your_key
+   VITE_OPENAI_API_KEY=your_key
    ```
 
-2. **Run Development Server**:
+2. **Launch Suite**:
    ```bash
    npm install
    npm run dev
    ```
 
-3. **Production Build**:
-   ```bash
-   npm run build
-   ```
-
 ---
 
-## 🔒 Security & Privacy
-Thunder Pro is designed as a **Client-First** application. Your transaction history and portfolio data never leave your browser, except when being passed through the secure proxy for AI analysis. All data remains stored in your local browser environment.
+## 🔒 Security & Performance
+BoltScan is designed with a **privacy-first** mentality. Your financial transactions are stored in your local SQLite database, and API keys are managed through secure environment variables. All performance-heavy calculations (P&L reconstruction and alpha normalization) are optimized for client-side execution.
