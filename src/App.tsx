@@ -9,6 +9,7 @@ import {
   BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Eye, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell
 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line } from 'recharts';
+import { InfoTooltip } from './components/InfoTooltip';
 import './index.css';
 
 // --- TYPES ---
@@ -103,40 +104,66 @@ function LearningCenter() {
       <div className="card" style={{ padding: '2rem' }}>
         {activeSection === 'basics' && (
           <div className="fade-in">
-            <h2 className="text-blue">Getting Started</h2>
-            <p>Welcome to Thunder Pro. This platform is designed to help you make data-driven investment decisions. Here is how to read your portfolio:</p>
-            <div style={{ marginTop: '2rem' }}>
-              <h4 className="text-yellow">Portfolio vs Market</h4>
-              <p>In the <strong>Performance</strong> tab, we normalize your portfolio to a base of 100. This allows you to see if you are "beating the market" (EGX 30). If your blue line is above the purple line, you have <strong>Alpha</strong> (positive excess return).</p>
-              
-              <h4 className="text-green" style={{ marginTop: '1.5rem' }}>Realized vs Unrealized P&L</h4>
-              <p><strong>Realized:</strong> Profit or loss from stocks you have already sold. This is "cash in hand".</p>
-              <p><strong>Unrealized:</strong> Current value of your holdings compared to what you paid. This changes every minute with the market.</p>
+            <h2 className="text-blue">Market Fundamentals</h2>
+            <p>Welcome to Thunder Pro. Mastering the EGX requires understanding both your portfolio and the broader market context.</p>
+            
+            <div style={{ marginTop: '2rem', display: 'grid', gap: '1.5rem' }}>
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '12px' }}>
+                <h4 className="text-yellow">Portfolio Performance & Alpha</h4>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                  In your dashboard, we use <strong>Basis 100</strong> normalization. If you start with 100 and the index is at 105 while you are at 110, you have 10% total return and 5% <strong>Alpha</strong> (outperformance). Alpha is the primary goal of active management.
+                </p>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '12px' }}>
+                <h4 className="text-green">Market Capitalization</h4>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                  This is the total value of a company (Shares × Price).
+                </p>
+                <ul style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                  <li><strong>Large Cap:</strong> Stable, established companies (e.g., COMI). Lower risk, lower growth.</li>
+                  <li><strong>Mid/Small Cap:</strong> Emerging companies. Higher growth potential but higher volatility.</li>
+                </ul>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '12px' }}>
+                <h4 className="text-blue">Dividends vs. Capital Gains</h4>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                  <strong>Capital Gains:</strong> Profit from the price increasing.
+                  <br />
+                  <strong>Dividends:</strong> Cash payments from company profits. High dividend yield stocks (like utility or telecom) are often used for passive income.
+                </p>
+              </div>
             </div>
           </div>
         )}
 
         {activeSection === 'technical' && (
           <div className="fade-in">
-            <h2 className="text-blue">Technical Indicators</h2>
+            <h2 className="text-blue">Advanced Technical Analysis</h2>
             <div style={{ display: 'grid', gap: '2rem', marginTop: '2rem' }}>
-              <div>
+              <div style={{ borderLeft: '3px solid var(--color-green)', paddingLeft: '1rem' }}>
                 <h4 className="text-green">RSI (Relative Strength Index)</h4>
-                <p>Measures the speed and change of price movements. It ranges from 0 to 100.</p>
-                <ul>
-                  <li><strong>Overbought (&gt; 70):</strong> The stock might be expensive and due for a correction (Consider Selling).</li>
-                  <li><strong>Oversold (&lt; 30):</strong> The stock might be undervalued and due for a bounce (Consider Buying).</li>
+                <p style={{ fontSize: '0.9rem' }}>A momentum oscillator that ranges from 0-100.</p>
+                <ul style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  <li><strong>&gt; 70 (Overbought):</strong> Market may be "exhausted." Probability of a pullback increases.</li>
+                  <li><strong>&lt; 30 (Oversold):</strong> Panic selling may have occurred. Probability of a "dead cat bounce" or reversal increases.</li>
                 </ul>
               </div>
-              <div>
-                <h4 className="text-yellow">SMA (Simple Moving Average)</h4>
-                <p>The average price over a specific period (e.g., 20 or 50 days). It "smooths" out price noise to show the true trend.</p>
-                <p>If the current price is <strong>above</strong> the SMA, the trend is generally bullish.</p>
+
+              <div style={{ borderLeft: '3px solid var(--color-yellow)', paddingLeft: '1rem' }}>
+                <h4 className="text-yellow">Moving Averages (SMA/EMA)</h4>
+                <p style={{ fontSize: '0.9rem' }}>Smooths price data to identify the trend direction.</p>
+                <ul style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  <li><strong>Golden Cross:</strong> Short-term MA crosses above long-term MA (Bullish).</li>
+                  <li><strong>Death Cross:</strong> Short-term MA crosses below long-term MA (Bearish).</li>
+                </ul>
               </div>
-              <div>
-                <h4 className="text-red">Support &amp; Resistance</h4>
-                <p><strong>Support:</strong> The "floor" where price usually stops falling. Buying happens here.</p>
-                <p><strong>Resistance:</strong> The "ceiling" where price usually stops rising. Selling happens here.</p>
+
+              <div style={{ borderLeft: '3px solid var(--color-blue)', paddingLeft: '1rem' }}>
+                <h4 className="text-blue">MACD & Volume</h4>
+                <p style={{ fontSize: '0.9rem' }}><strong>Volume:</strong> The number of shares traded. A price move with high volume is more "valid" than one with low volume.</p>
+                <p style={{ fontSize: '0.9rem' }}><strong>MACD:</strong> Shows relationship between two moving averages. When the MACD line crosses the signal line, it suggests a trend shift.</p>
               </div>
             </div>
           </div>
@@ -144,40 +171,62 @@ function LearningCenter() {
 
         {activeSection === 'risk' && (
           <div className="fade-in">
-            <h2 className="text-blue">Understanding Risk</h2>
-            <div style={{ marginTop: '2rem' }}>
-              <h4 className="text-red">Maximum Drawdown (Max DD)</h4>
-              <p>The largest drop from a peak to a trough. It tells you the "worst-case scenario" loss you would have experienced if you bought at the absolute top and sold at the absolute bottom.</p>
+            <h2 className="text-blue">Risk Management Framework</h2>
+            <div style={{ marginTop: '2rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+              <div className="card" style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                <h4 className="text-red">Maximum Drawdown (Max DD)</h4>
+                <p style={{ fontSize: '0.85rem' }}>The worst peak-to-trough decline. Professional investors prioritize <strong>Capital Preservation</strong>. A 50% loss requires a 100% gain just to get back to even.</p>
+              </div>
               
-              <h4 className="text-yellow" style={{ marginTop: '1.5rem' }}>Volatility (Annualized)</h4>
-              <p>A measure of how much a stock's price swings. High volatility means high risk but potential for high reward. Low volatility stocks (like utility companies) are generally safer but slower.</p>
+              <div className="card" style={{ background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                <h4 className="text-blue">The Sharpe Ratio</h4>
+                <p style={{ fontSize: '0.85rem' }}>Measures return per unit of risk. A high Sharpe ratio means the returns were earned through smart strategy, not just by taking wild gambles.</p>
+              </div>
+
+              <div className="card" style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                <h4 className="text-green">Beta (β)</h4>
+                <p style={{ fontSize: '0.85rem' }}><strong>β = 1:</strong> Moves exactly with the EGX 30.
+                <br /><strong>β &gt; 1:</strong> More volatile than the market (Aggressive).
+                <br /><strong>β &lt; 1:</strong> Less volatile than the market (Defensive).</p>
+              </div>
+
+              <div className="card" style={{ background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                <h4 className="text-yellow">Diversification</h4>
+                <p style={{ fontSize: '0.85rem' }}>"Don't put all eggs in one basket." Aim for 5-8 sectors. Correlation measures if your stocks move together; you want a mix that doesn't all drop at once.</p>
+              </div>
             </div>
           </div>
         )}
 
         {activeSection === 'judgement' && (
           <div className="fade-in">
-            <h2 className="text-blue">How to Judge: Buy or Sell?</h2>
-            <p>Using the AI Intelligence and Technicals together is the key to professional trading.</p>
+            <h2 className="text-blue">Institutional Decision Guide</h2>
             
-            <div style={{ marginTop: '2rem', background: 'rgba(16, 185, 129, 0.1)', padding: '1.5rem', borderRadius: '12px', borderLeft: '4px solid var(--color-green)' }}>
-              <h4 className="text-green">When to BUY (Bullish Signal)</h4>
-              <ul>
-                <li>AI Sentiment is <strong>Bullish</strong> or <strong>Strong Buy</strong>.</li>
-                <li>RSI is low (near or below 30).</li>
-                <li>Price is near a <strong>Support</strong> level.</li>
-                <li>Price is starting to trend above the <strong>SMA</strong>.</li>
-              </ul>
-            </div>
+            <div style={{ display: 'grid', gap: '1.5rem', marginTop: '2rem' }}>
+              <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '1.5rem', borderRadius: '12px', borderLeft: '4px solid var(--color-green)' }}>
+                <h4 className="text-green">Strategic BUY Signals</h4>
+                <ul style={{ fontSize: '0.9rem' }}>
+                  <li><strong>AI Confirmation:</strong> Sentiment is Bullish + Target Price &gt; 15% from Current.</li>
+                  <li><strong>Oversold RSI:</strong> RSI &lt; 35 indicates the selling may be overdone.</li>
+                  <li><strong>Support Bounce:</strong> Price hits a historical floor and starts turning up.</li>
+                  <li><strong>Volume Surge:</strong> Buying pressure increases with high transaction counts.</li>
+                </ul>
+              </div>
 
-            <div style={{ marginTop: '1.5rem', background: 'rgba(239, 68, 68, 0.1)', padding: '1.5rem', borderRadius: '12px', borderLeft: '4px solid var(--color-red)' }}>
-              <h4 className="text-red">When to SELL (Bearish Signal)</h4>
-              <ul>
-                <li>AI Sentiment is <strong>Bearish</strong> or <strong>Sell</strong>.</li>
-                <li>RSI is high (above 70).</li>
-                <li>Price is struggling at a <strong>Resistance</strong> level.</li>
-                <li>Price breaks <strong>below</strong> the SMA trend line.</li>
-              </ul>
+              <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '1.5rem', borderRadius: '12px', borderLeft: '4px solid var(--color-red)' }}>
+                <h4 className="text-red">Strategic EXIT Signals</h4>
+                <ul style={{ fontSize: '0.9rem' }}>
+                  <li><strong>Target Reached:</strong> Price hits the AI-predicted target. Don't be greedy.</li>
+                  <li><strong>Bearish AI:</strong> Institutional sentiment turns negative.</li>
+                  <li><strong>RSI Divergence:</strong> Price makes a new high but RSI makes a lower high.</li>
+                  <li><strong>Trend Break:</strong> Price falls and closes below the 50-day SMA.</li>
+                </ul>
+              </div>
+
+              <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: '1.5rem', borderRadius: '12px', borderLeft: '4px solid var(--color-blue)' }}>
+                <h4 className="text-blue">The 2% Portfolio Rule</h4>
+                <p style={{ fontSize: '0.85rem' }}>Never risk more than 2% of your total capital on a single trade. If your stop loss is triggered, you only lose a small fraction of your "war chest," allowing you to stay in the game for the long run.</p>
+              </div>
             </div>
           </div>
         )}
@@ -580,6 +629,13 @@ function App() {
   const totalPnL = totalMarketValue - totalInvested;
   const totalPnLPercent = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
 
+  // --- TOP-LEVEL HEALTH LOGIC ---
+  const uniqueSectors = [...new Set(holdings.map(h => h.sector))].length;
+  const divScore = Math.min(100, (uniqueSectors / 5) * 100);
+  const perfScore = totalPnLPercent > 0 ? 100 : 70;
+  const healthScore = Math.round((divScore * 0.4) + (perfScore * 0.4) + 20);
+  const portfolioGrade = healthScore > 90 ? 'A+' : healthScore > 80 ? 'A' : healthScore > 70 ? 'B' : 'C';
+
   return (
     <div className="app-container">
       <header className="header">
@@ -644,13 +700,13 @@ function App() {
           <Clock size={16} /> Transaction History
         </button>
         <button 
-          onClick={() => setActiveTab('risk')}
+          onClick={() => setActiveTab('health')}
           style={{ 
             padding: '1rem 0.5rem', 
             background: 'none', 
             border: 'none', 
-            borderBottom: activeTab === 'risk' ? '2px solid var(--color-blue)' : '2px solid transparent',
-            color: activeTab === 'risk' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            borderBottom: activeTab === 'health' ? '2px solid var(--color-blue)' : '2px solid transparent',
+            color: activeTab === 'health' ? 'var(--text-primary)' : 'var(--text-secondary)',
             fontWeight: 600,
             cursor: 'pointer',
             fontSize: '0.9rem',
@@ -659,25 +715,7 @@ function App() {
             gap: '8px'
           }}
         >
-          <ShieldAlert size={16} /> Risk Analysis
-        </button>
-        <button 
-          onClick={() => setActiveTab('performance')}
-          style={{ 
-            padding: '1rem 0.5rem', 
-            background: 'none', 
-            border: 'none', 
-            borderBottom: activeTab === 'performance' ? '2px solid var(--color-blue)' : '2px solid transparent',
-            color: activeTab === 'performance' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            fontWeight: 600,
-            cursor: 'pointer',
-            fontSize: '0.9rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
-          <TrendingUp size={16} /> Performance Analysis
+          <Sparkles size={16} className="text-yellow" /> Portfolio Health
         </button>
         <button 
           onClick={() => setActiveTab('market')}
@@ -733,31 +771,13 @@ function App() {
         >
           <Target size={16} /> Simulation Lab
         </button>
-        <button 
-          onClick={() => setActiveTab('health')}
-          style={{ 
-            padding: '1rem 0.5rem', 
-            background: 'none', 
-            border: 'none', 
-            borderBottom: activeTab === 'health' ? '2px solid var(--color-blue)' : '2px solid transparent',
-            color: activeTab === 'health' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            fontWeight: 600,
-            cursor: 'pointer',
-            fontSize: '0.9rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
-          <Activity size={16} /> Portfolio Health
-        </button>
       </div>
 
       <main className="main-content">
         {activeTab === 'market' && <MarketIntelligence watchlist={watchlist} setWatchlist={setWatchlist} marketData={marketData} analyticsData={analyticsData} setAnalysisStock={setAnalysisStock} shariaTickers={SHARIA_TICKERS} />}
-        {activeTab === 'simulator' && <StrategySimulator holdings={holdings} />}
-        {activeTab === 'health' && <PerformanceDashboard transactions={transactions} holdings={holdings} />}
-        {activeTab === 'holdingHistory' && <HoldingHistory holdings={holdings} analyticsData={analyticsData} />}
+        {activeTab === 'simulator' && <StrategySimulator holdings={holdings} analyticsData={analyticsData} totalMarketValue={totalMarketValue} />}
+        {activeTab === 'health' && <PerformanceDashboard transactions={transactions} holdings={holdings} analyticsData={analyticsData} portfolioGrade={portfolioGrade} walletBalance={walletBalance} marketData={marketData} />}
+        {activeTab === 'holdingHistory' && <HoldingHistory holdings={holdings} analyticsData={analyticsData} transactions={transactions} />}
 
         {activeTab === 'portfolio' && (
           <>
@@ -779,33 +799,16 @@ function App() {
               </div>
               <div className="card" style={{ borderLeft: '4px solid var(--color-blue)', background: 'linear-gradient(135deg, rgba(59,130,246,0.05) 0%, transparent 100%)' }}>
                 <div className="card-header"><span className="card-title text-blue">Tax & Zakat</span><ShieldCheck size={20} className="text-blue" /></div>
-                <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {Math.round(totalMarketValue * 0.025).toLocaleString()}</h2>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Est. Zakat (2.5%) + EGX Cap Gains Tax</p>
+                <h2 className="mono" style={{ fontSize: '2rem' }}>
+                  EGP {((totalMarketValue + walletBalance) >= (85 * 3800) ? Math.round((totalMarketValue + walletBalance) * 0.025) : 0).toLocaleString()}
+                </h2>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  {(totalMarketValue + walletBalance) >= (85 * 3800) ? 'Est. Zakat (2.5%) + Cap Gains' : 'Below Nisab Threshold'}
+                </p>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem', marginBottom: '2rem' }}>
-               <div className="card" style={{ padding: '1.5rem' }}>
-                  <div className="card-header"><h3 className="card-title">Market Sentinel</h3><Bell size={20} className="text-yellow" /></div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                     {holdings.slice(0, 3).map(h => (
-                        <div key={h.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
-                           <span style={{ fontWeight: 700 }}>{h.ticker}</span>
-                           <span style={{ fontSize: '0.8rem' }} className={analyticsData[h.ticker]?.sentiment?.includes('BULL') ? 'text-green' : 'text-yellow'}>
-                              {analyticsData[h.ticker]?.sentiment || 'Neutral Sentiment'}
-                           </span>
-                        </div>
-                     ))}
-                  </div>
-               </div>
-               <div className="card" style={{ padding: '1.5rem', background: 'var(--bg-app)', border: '1px dashed var(--border-color)' }}>
-                  <h3 className="card-title" style={{ marginBottom: '1rem' }}>Wealth Allocation Insight</h3>
-                  <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                     Your portfolio is currently <b>{((totalMarketValue / (totalMarketValue + walletBalance)) * 100).toFixed(1)}%</b> allocated to equities. 
-                     Based on your <b>{grade}</b> health score, you have room to deploy <b>EGP {Math.round(walletBalance * 0.3).toLocaleString()}</b> into undervalued industrial stocks.
-                  </p>
-               </div>
-            </div>
+
 
             <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
               <div className="card-header" style={{ padding: '1.5rem' }}>
@@ -838,7 +841,7 @@ function App() {
                     const pnl = value - h.totalCost;
                     const pnlPct = h.totalCost > 0 ? (pnl / h.totalCost) * 100 : 0;
                     return (
-                      <tr key={h.ticker}>
+                      <tr key={h.ticker} style={{ background: pnl >= 0 ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)' }}>
                         <td style={{ fontWeight: 700 }}>{h.ticker}</td>
                         <td style={{ color: 'var(--text-secondary)' }}>{h.company}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{h.shares}</td>
@@ -1920,7 +1923,7 @@ function TradingViewWidget({ symbol }: { symbol: string }) {
     </div>
   );
 }
-function HoldingHistory({ holdings, analyticsData }: { holdings: Holding[], analyticsData: Record<string, any> }) {
+function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: Holding[], analyticsData: Record<string, any>, transactions: Transaction[] }) {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [range, setRange] = useState('6m');
@@ -1928,6 +1931,16 @@ function HoldingHistory({ holdings, analyticsData }: { holdings: Holding[], anal
   const [showTrend, setShowTrend] = useState(false);
   const [tickerHistories, setTickerHistories] = useState<Record<string, any[]>>({});
   const [lang, setLang] = useState<'EN' | 'AR'>('EN');
+  const [showMarkers, setShowMarkers] = useState(false);
+  const [markerSettings, setMarkerSettings] = useState({
+    style: 'dot', // dot, square, diamond, label
+    size: 6,
+    colorMode: 'status', // status (green/red), match (line color)
+    showLabels: false,
+    showQuantity: false
+  });
+  const [isSettingsOpen, setIsMarkerSettingsOpen] = useState(false);
+  const [hoveredTicker, setHoveredTicker] = useState<string | null>(null);
 
   useEffect(() => {
     if (holdings.length > 0 && visibleTickers.length === 0) {
@@ -1970,12 +1983,24 @@ function HoldingHistory({ holdings, analyticsData }: { holdings: Holding[], anal
                 const startPrice = h[0].close || 1;
                 const normalizedPrice = (p.close / startPrice) * 100;
                 point[ticker] = normalizedPrice;
+                point[`${ticker}_raw`] = p.close;
 
                 // SMA-20 Trend
                 if (pIndex >= 20) {
                    const slice = h.slice(pIndex - 20, pIndex);
                    const sma = slice.reduce((a, b) => a + b.close, 0) / 20;
                    point[`${ticker}_trend`] = (sma / startPrice) * 100;
+                }
+
+                // Buy Markers
+                const buyTx = transactions.find(tx => tx.ticker === ticker && tx.type === 'Buy' && tx.date === date);
+                if (buyTx) {
+                  point[`${ticker}_buy`] = normalizedPrice;
+                  point[`${ticker}_buy_details`] = {
+                    price: buyTx.price,
+                    quantity: buyTx.quantity,
+                    ticker: ticker
+                  };
                 }
               }
             }
@@ -1991,7 +2016,7 @@ function HoldingHistory({ holdings, analyticsData }: { holdings: Holding[], anal
       }
     };
     fetchData();
-  }, [visibleTickers, range]);
+  }, [visibleTickers, range, transactions]);
 
   const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#a855f7', '#6366f1'];
 
@@ -2020,8 +2045,110 @@ function HoldingHistory({ holdings, analyticsData }: { holdings: Holding[], anal
               color: showTrend ? 'white' : 'var(--text-secondary)'
             }}
           >
-            <Sparkles size={14} /> {showTrend ? 'Hide Trends' : 'Show Trends'}
+            <Sparkles size={14} /> {showTrend ? 'Hide Trends' : 'Show Trends'} <InfoTooltip term="SMA" />
           </button>
+          <button 
+            onClick={() => setShowMarkers(!showMarkers)}
+            className={`btn-secondary ${showMarkers ? 'active' : ''}`}
+            style={{ 
+              fontSize: '0.8rem', 
+              padding: '8px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: showMarkers ? 'var(--color-green)' : 'transparent',
+              color: showMarkers ? 'white' : 'var(--text-secondary)'
+            }}
+          >
+            <PlusCircle size={14} /> {showMarkers ? 'Hide Buy Markers' : 'Show Buy Markers'}
+          </button>
+          
+          {showMarkers && (
+            <div style={{ position: 'relative' }}>
+              <button 
+                onClick={() => setIsMarkerSettingsOpen(!isSettingsOpen)}
+                className="icon-btn"
+                style={{ padding: '8px', background: isSettingsOpen ? 'rgba(59, 130, 246, 0.1)' : 'transparent' }}
+              >
+                <SettingsIcon size={18} />
+              </button>
+              
+              {isSettingsOpen && (
+                <div style={{ 
+                  position: 'absolute', 
+                  top: '100%', 
+                  right: 0, 
+                  zIndex: 100, 
+                  background: '#1a1b1e', 
+                  border: '1px solid #333', 
+                  borderRadius: '12px', 
+                  padding: '1rem',
+                  boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)',
+                  minWidth: '220px',
+                  marginTop: '0.5rem'
+                }}>
+                  <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem' }}>Marker Visualization</h4>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Shape</span>
+                      <select 
+                        value={markerSettings.style} 
+                        onChange={(e) => setMarkerSettings(prev => ({ ...prev, style: e.target.value }))}
+                        style={{ background: '#2a2b2e', border: '1px solid #444', color: 'white', fontSize: '0.8rem', borderRadius: '4px' }}
+                      >
+                        <option value="dot">Classic Dot</option>
+                        <option value="square">Modern Square</option>
+                        <option value="diamond">Pro Diamond</option>
+                        <option value="label">Direct Label</option>
+                      </select>
+                    </div>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Size</span>
+                      <input 
+                        type="range" min="4" max="12" step="2"
+                        value={markerSettings.size}
+                        onChange={(e) => setMarkerSettings(prev => ({ ...prev, size: parseInt(e.target.value) }))}
+                        style={{ width: '80px' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Color</span>
+                      <select 
+                        value={markerSettings.colorMode} 
+                        onChange={(e) => setMarkerSettings(prev => ({ ...prev, colorMode: e.target.value }))}
+                        style={{ background: '#2a2b2e', border: '1px solid #444', color: 'white', fontSize: '0.8rem', borderRadius: '4px' }}
+                      >
+                        <option value="status">Status (Green)</option>
+                        <option value="match">Match Ticker Color</option>
+                      </select>
+                    </div>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={markerSettings.showLabels}
+                        onChange={(e) => setMarkerSettings(prev => ({ ...prev, showLabels: e.target.checked }))}
+                      />
+                      <span style={{ fontSize: '0.8rem' }}>Show Price on Graph</span>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={markerSettings.showQuantity}
+                        onChange={(e) => setMarkerSettings(prev => ({ ...prev, showQuantity: e.target.checked }))}
+                      />
+                      <span style={{ fontSize: '0.8rem' }}>Scale by Quantity</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="btn-group">
             {['1m', '3m', '6m', '1y'].map(r => (
               <button key={r} className={range === r ? 'active' : ''} onClick={() => setRange(r)}>{r.toUpperCase()}</button>
@@ -2069,8 +2196,71 @@ function HoldingHistory({ holdings, analyticsData }: { holdings: Holding[], anal
             <XAxis dataKey="displayDate" axisLine={false} tickLine={false} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
             <YAxis axisLine={false} tickLine={false} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} tickFormatter={v => `${v.toFixed(0)}`} domain={['auto', 'auto']} />
             <Tooltip 
-              contentStyle={{ background: '#1a1b1e', border: '1px solid #333', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)' }}
-              itemStyle={{ fontSize: '12px' }}
+              content={({ active, payload, label }) => {
+                if (active && payload && payload.length) {
+                  const buys = payload.filter((p: any) => p.dataKey.endsWith('_buy'));
+                  const prices = payload.filter((p: any) => !p.dataKey.endsWith('_buy') && !p.dataKey.endsWith('_trend'));
+                  
+                  return (
+                    <div style={{ 
+                      background: '#1a1b1e', 
+                      border: '1px solid #333', 
+                      borderRadius: '12px', 
+                      padding: '1rem',
+                      boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)',
+                      minWidth: '180px'
+                    }}>
+                      <div style={{ borderBottom: '1px solid #333', paddingBottom: '0.5rem', marginBottom: '0.5rem', fontWeight: 700, fontSize: '0.9rem' }}>
+                        {label}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {prices.map((p: any) => {
+                          const holding = holdings.find(h => h.ticker === p.name);
+                          const rawPrice = p.payload[`${p.dataKey}_raw`];
+                          const avgCost = holding?.avgCost || 0;
+                          const pnl = avgCost > 0 ? ((rawPrice - avgCost) / avgCost) * 100 : 0;
+                          
+                          return (
+                            <div key={p.dataKey} style={{ 
+                              padding: '6px 0', 
+                              borderBottom: '1px solid rgba(255,255,255,0.03)',
+                              opacity: hoveredTicker && !p.name.startsWith(hoveredTicker) ? 0.3 : 1 
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <span style={{ color: p.color, fontWeight: 700, fontSize: '0.9rem' }}>{p.name}</span>
+                                <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>EGP {Number(rawPrice).toFixed(2)}</span>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                                <span>Cost: {avgCost > 0 ? `EGP ${avgCost.toFixed(2)}` : 'N/A'}</span>
+                                <span style={{ color: pnl >= 0 ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+                                  {pnl >= 0 ? '▲' : '▼'} {Math.abs(pnl).toFixed(2)}%
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {buys.length > 0 && hoveredTicker && (
+                        <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px dashed #444' }}>
+                          {buys.filter((b: any) => b.name.startsWith(hoveredTicker)).map((b: any) => {
+                            const details = b.payload?.[`${b.dataKey}_details`];
+                            if (!details) return null;
+                            return (
+                              <div key={b.dataKey} style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '8px', borderRadius: '8px', marginBottom: '4px', borderLeft: '3px solid #10b981' }}>
+                                <div style={{ color: '#10b981', fontWeight: 800, fontSize: '0.75rem', marginBottom: '2px' }}>BUY: {b.name.split(' ')[0]}</div>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                                  Price: <span style={{ color: 'white' }}>EGP {details.price}</span> | Qty: <span style={{ color: 'white' }}>{details.quantity}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+                return null;
+              }}
             />
             <Legend verticalAlign="top" align="right" iconType="circle" />
             {visibleTickers.map((ticker, i) => (
@@ -2096,6 +2286,69 @@ function HoldingHistory({ holdings, analyticsData }: { holdings: Holding[], anal
                     dot={false} 
                     animationDuration={800} 
                     opacity={0.6}
+                  />
+                )}
+                {showMarkers && (
+                  <Line 
+                    type="monotone" 
+                    dataKey={`${ticker}_buy`} 
+                    name={`${ticker} Purchase`}
+                    stroke="none" 
+                    dot={(props: any) => {
+                      const { cx, cy, payload, value } = props;
+                      if (!value) return null;
+                      
+                      const details = payload[`${ticker}_buy_details`];
+                      const baseColor = markerSettings.colorMode === 'match' ? colors[i % colors.length] : '#10b981';
+                      
+                      // Calculate scale if enabled
+                      let radius = markerSettings.size;
+                      if (markerSettings.showQuantity && details?.quantity) {
+                        radius = Math.min(15, Math.max(radius, radius * (Math.log10(details.quantity) / 2)));
+                      }
+
+                      let shape: any = null;
+                      switch(markerSettings.style) {
+                        case 'square':
+                          shape = <rect x={cx - radius} y={cy - radius} width={radius*2} height={radius*2} fill={baseColor} stroke="#fff" strokeWidth={2} />;
+                          break;
+                        case 'diamond':
+                          const d = radius * 1.4;
+                          shape = <path d={`M ${cx} ${cy-d} L ${cx+d} ${cy} L ${cx} ${cy+d} L ${cx-d} ${cy} Z`} fill={baseColor} stroke="#fff" strokeWidth={2} />;
+                          break;
+                        case 'label':
+                          shape = null; // We'll show text only
+                          break;
+                        default:
+                          shape = <circle cx={cx} cy={cy} r={radius} fill={baseColor} stroke="#fff" strokeWidth={2} />;
+                      }
+
+                      return (
+                        <g 
+                          key={`marker-${ticker}-${cx}`}
+                          onMouseEnter={() => setHoveredTicker(ticker)}
+                          onMouseLeave={() => setHoveredTicker(null)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          {shape}
+                          {markerSettings.showLabels && (
+                            <text 
+                              x={cx} 
+                              y={cy - radius - 8} 
+                              textAnchor="middle" 
+                              fill="white" 
+                              fontSize="10" 
+                              fontWeight="bold"
+                              style={{ pointerEvents: 'none', filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.8))' }}
+                            >
+                              {details?.price}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    }} 
+                    legendType="none"
+                    animationDuration={800}
                   />
                 )}
               </React.Fragment>
@@ -2172,13 +2425,13 @@ function HoldingHistory({ holdings, analyticsData }: { holdings: Holding[], anal
                     </span>
                   </div>
                   <div style={{ textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
-                    <p className="text-muted" style={{ fontSize: '0.65rem', marginBottom: '4px' }}>MAX DD</p>
+                    <p className="text-muted" style={{ fontSize: '0.65rem', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>MAX DD <InfoTooltip term="Max Drawdown" /></p>
                     <span className="mono" style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--color-red)' }}>
                       {stats ? `-${stats.maxDD.toFixed(1)}%` : 'N/A'}
                     </span>
                   </div>
                   <div style={{ textAlign: 'center' }}>
-                    <p className="text-muted" style={{ fontSize: '0.65rem', marginBottom: '4px' }}>ANN. VOL</p>
+                    <p className="text-muted" style={{ fontSize: '0.65rem', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>ANN. VOL <InfoTooltip term="Volatility" /></p>
                     <span className="mono" style={{ fontWeight: 700, fontSize: '0.9rem' }}>
                       {stats ? `${stats.vol.toFixed(1)}%` : 'N/A'}
                     </span>
@@ -2226,7 +2479,7 @@ function HoldingHistory({ holdings, analyticsData }: { holdings: Holding[], anal
 }
 
 
-function PerformanceDashboard({ transactions, holdings }: { transactions: Transaction[], holdings: Holding[] }) {
+function PerformanceDashboard({ transactions, holdings, analyticsData, portfolioGrade, walletBalance, marketData }: { transactions: Transaction[], holdings: Holding[], analyticsData: any, portfolioGrade: string, walletBalance: number, marketData: any }) {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2342,8 +2595,32 @@ function PerformanceDashboard({ transactions, holdings }: { transactions: Transa
   const healthScore = Math.round((divScore * 0.4) + (alphaScore * 0.4) + 20);
   const grade = healthScore > 90 ? 'A+' : healthScore > 80 ? 'A' : healthScore > 70 ? 'B' : 'C';
 
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem', padding: '0 1.5rem 3rem' }}>
+      
+      {/* Consolidated Intelligence Hub */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
+          <div className="card" style={{ padding: '1.5rem' }}>
+            <div className="card-header"><h3 className="card-title" style={{ fontSize: '1rem' }}>Market Sentinel</h3><Bell size={20} className="text-yellow" /></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {holdings.slice(0, 3).map((h:any) => (
+                  <div key={h.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
+                      <span style={{ fontWeight: 700 }}>{h.ticker}</span>
+                      <span style={{ fontSize: '0.8rem' }} className={analyticsData[h.ticker]?.sentiment?.includes('BULL') ? 'text-green' : 'text-yellow'}>
+                        {analyticsData[h.ticker]?.sentiment || 'Neutral Sentiment'}
+                      </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+          <div className="card" style={{ padding: '1.5rem', background: 'var(--bg-app)', border: '1px dashed var(--border-color)' }}>
+            <h3 className="card-title" style={{ marginBottom: '1rem', fontSize: '1rem' }}>Wealth Allocation Insight</h3>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                Based on your <b>{portfolioGrade}</b> health score, the AI recommendation is to maintain <b>{Math.round(walletBalance * 0.3).toLocaleString()} EGP</b> in liquid cash while deploying into defensive industrial sectors to hedge against current EGX volatility.
+            </p>
+          </div>
+      </div>
       
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr', gap: '1.5rem' }}>
         <div className="card" style={{ padding: '1.5rem', borderLeft: '6px solid var(--color-blue)', display: 'flex', alignItems: 'center', gap: '2rem' }}>
@@ -2355,8 +2632,8 @@ function PerformanceDashboard({ transactions, holdings }: { transactions: Transa
               <h3 style={{ margin: 0 }}>Portfolio Health Score</h3>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '4px 0 0' }}>Overall rating based on diversification & alpha</p>
               <div style={{ display: 'flex', gap: '1rem', marginTop: '12px' }}>
-                 <span className="badge badge-blue">Diversification: {divScore.toFixed(0)}%</span>
-                 <span className={`badge ${alpha >= 0 ? 'badge-green' : 'badge-yellow'}`}>Alpha: {alpha.toFixed(1)}%</span>
+                 <span className="badge badge-blue">Diversification <InfoTooltip term="Diversification" />: {divScore.toFixed(0)}%</span>
+                 <span className={`badge ${alpha >= 0 ? 'badge-green' : 'badge-yellow'}`}>Alpha <InfoTooltip term="Alpha" />: {alpha.toFixed(1)}%</span>
               </div>
            </div>
         </div>
@@ -2385,14 +2662,67 @@ function PerformanceDashboard({ transactions, holdings }: { transactions: Transa
               <button onClick={() => setCompareTickers(prev => prev.filter(t => t !== ticker))} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0 }}><X size={14} /></button>
             </div>
           ))}
-          <input 
-            type="text" 
-            placeholder="Search symbol to add..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="input-field"
-            style={{ width: '250px', padding: '6px 12px', fontSize: '0.85rem' }}
-          />
+          <div style={{ position: 'relative' }}>
+            <input 
+              type="text" 
+              placeholder="Search symbol to add..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="input-field"
+              style={{ width: '250px', padding: '6px 12px', fontSize: '0.85rem' }}
+            />
+            {searchQuery.length > 1 && (
+              <div style={{ 
+                position: 'absolute', 
+                top: '100%', 
+                left: 0, 
+                right: 0, 
+                background: '#1a1b1e', 
+                border: '1px solid #333', 
+                borderRadius: '8px', 
+                marginTop: '4px', 
+                zIndex: 100, 
+                maxHeight: '200px', 
+                overflowY: 'auto',
+                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)'
+              }}>
+                {Object.keys(marketData)
+                  .filter(ticker => ticker.toLowerCase().includes(searchQuery.toLowerCase()) && !compareTickers.includes(ticker))
+                  .slice(0, 10)
+                  .map(ticker => (
+                    <div 
+                      key={ticker} 
+                      onClick={() => {
+                        if (!compareTickers.includes(ticker)) {
+                          const newCompare = [...compareTickers, ticker];
+                          setCompareTickers(newCompare);
+                          localStorage.setItem('boltscan_compare_tickers', JSON.stringify(newCompare));
+                        }
+                        setSearchQuery('');
+                      }}
+                      style={{ 
+                        padding: '8px 12px', 
+                        cursor: 'pointer', 
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}
+                      className="hover-bg"
+                    >
+                      <span style={{ fontWeight: 700 }}>{ticker}</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{marketData[ticker]?.company || ''}</span>
+                    </div>
+                  ))
+                }
+                {Object.keys(marketData).filter(t => t.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                  <div style={{ padding: '12px', fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                    No matching symbols found
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -2430,159 +2760,50 @@ function PerformanceDashboard({ transactions, holdings }: { transactions: Transa
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-        <div className="card" style={{ padding: '1.5rem' }}>
-           <h4 className="text-yellow" style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-             <ShieldCheck size={18} /> AI Rebalancing Lab
-           </h4>
-           <div style={{ background: 'rgba(234, 179, 8, 0.05)', padding: '1rem', borderRadius: '12px', borderLeft: '4px solid var(--color-yellow)' }}>
-              <p style={{ fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>
-                <b>Optimal Mix:</b> Your portfolio is overweight in <b>Financials</b>. The AI suggests trimming 5% from bank stocks and adding to <b>Industrial Goods</b> to hedge against currency shifts.
-              </p>
-           </div>
-        </div>
-        <div className="card" style={{ padding: '1.5rem' }}>
-           <h4 className="text-green" style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-             <DollarSign size={18} /> Dividend Intelligence
-           </h4>
-           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <p className="text-muted" style={{ fontSize: '0.75rem', margin: 0 }}>Estimated Annual Yield</p>
-                <h3 style={{ margin: '4px 0 0' }}>7.42%</h3>
-              </div>
-              <button className="badge badge-green" style={{ border: 'none', cursor: 'pointer' }}>View Calendar</button>
-           </div>
-        </div>
-      </div>
-
-    </div>
-  );
-}
-
-function RiskDashboard({ holdings }: { holdings: Holding[] }) {
-  if (holdings.length === 0) return null;
-
-  const totalValue = holdings.reduce((sum, h) => sum + (h.shares * h.livePrice), 0);
-  
-  // Sector Analysis
-  const sectors: Record<string, number> = {};
-  holdings.forEach(h => {
-    const val = h.shares * h.livePrice;
-    sectors[h.sector] = (sectors[h.sector] || 0) + val;
-  });
-  const sortedSectors = Object.entries(sectors).sort((a, b) => b[1] - a[1]);
-  const topSector = sortedSectors[0];
-  const sectorConcentration = (topSector[1] / totalValue) * 100;
-
-  // Concentration Analysis
-  const sortedHoldings = [...holdings].sort((a, b) => (b.shares * b.livePrice) - (a.shares * a.livePrice));
-  const top3Value = sortedHoldings.slice(0, 3).reduce((sum, h) => sum + (h.shares * h.livePrice), 0);
-  const concentration3 = (top3Value / totalValue) * 100;
-
-  // Stop-Loss Calculation (SMA50 - 5%)
-  const stopLossWatchlist = holdings.map(h => {
-    const sma50 = h.stats?.sma50 ? parseFloat(h.stats.sma50) : null;
-    if (!sma50) return null;
-    const stopPrice = sma50 * 0.95;
-    const distance = ((h.livePrice - stopPrice) / stopPrice) * 100;
-    return { ticker: h.ticker, stopPrice, distance, status: h.livePrice < stopPrice ? 'CRITICAL' : distance < 5 ? 'WARNING' : 'SAFE' };
-  }).filter((x): x is any => x !== null && x.status !== 'SAFE');
-
-  // Risk Level
-  let riskLevel = 'LOW';
-  let riskColor = 'var(--color-green)';
-  if (concentration3 > 60 || holdings.length < 3) { riskLevel = 'HIGH'; riskColor = 'var(--color-red)'; }
-  else if (concentration3 > 40 || holdings.length < 5) { riskLevel = 'MEDIUM'; riskColor = 'var(--color-yellow)'; }
-
-  return (
-    <div style={{ padding: '0 1.5rem', marginBottom: '2rem' }}>
+      {/* Risk & Safety Section */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
         
-        {/* Risk Level Card */}
-        <div className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <ShieldAlert size={18} className="text-blue" /> Portfolio Health
-            </h3>
-            <span style={{ 
-              background: riskColor, 
-              color: riskLevel === 'MEDIUM' ? 'black' : 'white', 
-              padding: '4px 12px', 
-              borderRadius: '20px', 
-              fontSize: '0.7rem', 
-              fontWeight: 800 
-            }}>{riskLevel} RISK</span>
-          </div>
-          
+        {/* Diversification Card */}
+        <div className="card" style={{ padding: '1.5rem' }}>
+          <h4 style={{ margin: '0 0 1.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ShieldAlert size={18} className="text-blue" /> Sector Diversification
+          </h4>
           <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '12px' }}>
-             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Diversification Score</p>
+             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Exposure Balance</p>
              <div style={{ height: '8px', background: '#333', borderRadius: '4px', overflow: 'hidden', marginBottom: '8px' }}>
-                <div style={{ width: `${Math.max(10, 100 - sectorConcentration)}%`, height: '100%', background: 'var(--color-blue)', borderRadius: '4px' }}></div>
+                <div style={{ width: `${divScore}%`, height: '100%', background: 'var(--color-blue)', borderRadius: '4px' }}></div>
              </div>
-             <p style={{ fontSize: '0.75rem', margin: 0 }}>
-               Largest sector: <span style={{ fontWeight: 700 }}>{topSector[0]}</span> ({sectorConcentration.toFixed(1)}%)
+             <p style={{ fontSize: '0.75rem', margin: '8px 0 0' }}>
+               Current Score: <span style={{ fontWeight: 700 }}>{divScore.toFixed(0)}/100</span>
              </p>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <div style={{ textAlign: 'center', padding: '10px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
-              <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Top 3 Weight</p>
-              <p style={{ fontSize: '1.1rem', fontWeight: 700, color: concentration3 > 60 ? 'var(--color-red)' : 'white' }}>{concentration3.toFixed(1)}%</p>
-            </div>
-            <div style={{ textAlign: 'center', padding: '10px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
-              <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Holdings</p>
-              <p style={{ fontSize: '1.1rem', fontWeight: 700 }}>{holdings.length}</p>
-            </div>
           </div>
         </div>
 
         {/* Technical Safety Watchlist */}
         <div className="card" style={{ padding: '1.5rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h4 style={{ margin: '0 0 1.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Target size={18} className="text-red" /> Safety Watchlist
-          </h3>
-          
-          {stopLossWatchlist.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-               <CheckCircle2 size={32} className="text-green" style={{ marginBottom: '1rem', opacity: 0.5 }} />
-               <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>All positions are currently trading above critical safety levels.</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {stopLossWatchlist.map(s => (
-                <div key={s.ticker} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', borderLeft: `4px solid ${s.status === 'CRITICAL' ? 'var(--color-red)' : 'var(--color-yellow)'}` }}>
-                  <div>
-                    <p style={{ fontWeight: 700, margin: 0 }}>{s.ticker}</p>
-                    <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>Stop: EGP {s.stopPrice.toFixed(2)}</p>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <p style={{ fontSize: '0.85rem', fontWeight: 700, color: s.status === 'CRITICAL' ? 'var(--color-red)' : 'var(--color-yellow)', margin: 0 }}>
-                      {s.status}
-                    </p>
-                    <p style={{ fontSize: '0.7rem', margin: 0 }}>{s.distance.toFixed(1)}% to stop</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+             {holdings.slice(0, 2).map(h => {
+                const sma50 = h.stats?.sma50 ? parseFloat(h.stats.sma50) : null;
+                const stopPrice = sma50 ? sma50 * 0.95 : null;
+                const isSafe = stopPrice ? h.livePrice > stopPrice : true;
+                return (
+                   <div key={h.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', borderLeft: `3px solid ${isSafe ? 'var(--color-green)' : 'var(--color-red)'}` }}>
+                      <span style={{ fontWeight: 700 }}>{h.ticker}</span>
+                      <span style={{ fontSize: '0.8rem' }}>{isSafe ? 'SAFE' : 'CRITICAL'}</span>
+                   </div>
+                );
+             })}
+          </div>
         </div>
-
-        {/* Investment Strategy Advice */}
-        <div className="card" style={{ padding: '1.5rem', border: '1px dashed var(--border-color)', background: 'none' }}>
-           <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--color-blue)' }}>Health Tips</h3>
-           <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-             {concentration3 > 50 && <li>Your portfolio is highly concentrated in few stocks. Consider rebalancing to reduce impact of a single stock crash.</li>}
-             {holdings.length < 5 && <li>Portfolio has low diversification. Aim for 8-12 stocks across different sectors for optimal risk-reward.</li>}
-             {sectorConcentration > 40 && <li>You have high exposure to the <b>{topSector[0]}</b> sector. Consider looking into other industries.</li>}
-             {stopLossWatchlist.some(s => s.status === 'CRITICAL') && <li>One or more stocks have broken their 50-day moving average. Review these positions for potential exit.</li>}
-             {riskLevel === 'LOW' && <li>Your portfolio structure is healthy and well-balanced. Keep up the disciplined diversification.</li>}
-           </ul>
-        </div>
-
       </div>
+
     </div>
   );
 }
+
 function MarketIntelligence({ watchlist, setWatchlist, marketData, analyticsData, setAnalysisStock, shariaTickers }: any) {
   const [newTicker, setNewTicker] = useState('');
   const [showShariaOnly, setShowShariaOnly] = useState(false);
@@ -2648,15 +2869,60 @@ function MarketIntelligence({ watchlist, setWatchlist, marketData, analyticsData
                <input type="checkbox" checked={showShariaOnly} onChange={e => setShowShariaOnly(e.target.checked)} />
                <span>AAOIFI Compliant Only</span>
              </label>
-             <div style={{ display: 'flex', gap: '8px' }}>
+             <div style={{ display: 'flex', gap: '8px', position: 'relative' }}>
                 <input 
                   className="input-field" 
-                  style={{ width: '120px', padding: '8px' }} 
-                  placeholder="Ticker..." 
+                  style={{ width: '150px', padding: '8px' }} 
+                  placeholder="Search Ticker..." 
                   value={newTicker} 
                   onChange={e => setNewTicker(e.target.value)} 
                 />
                 <button className="btn-primary" style={{ padding: '8px 12px' }} onClick={addToWatchlist}><Plus size={16} /></button>
+                
+                {newTicker.length > 1 && (
+                  <div style={{ 
+                    position: 'absolute', 
+                    top: '100%', 
+                    left: 0, 
+                    right: 0, 
+                    background: '#1a1b1e', 
+                    border: '1px solid #333', 
+                    borderRadius: '8px', 
+                    marginTop: '4px', 
+                    zIndex: 100, 
+                    maxHeight: '200px', 
+                    overflowY: 'auto',
+                    boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)'
+                  }}>
+                    {Object.keys(marketData)
+                      .filter(ticker => ticker.toLowerCase().includes(newTicker.toLowerCase()) && !watchlist.includes(ticker))
+                      .slice(0, 8)
+                      .map(ticker => (
+                        <div 
+                          key={ticker} 
+                          onClick={() => {
+                            if (!watchlist.includes(ticker)) {
+                              setWatchlist([...watchlist, ticker]);
+                            }
+                            setNewTicker('');
+                          }}
+                          style={{ 
+                            padding: '8px 12px', 
+                            cursor: 'pointer', 
+                            borderBottom: '1px solid rgba(255,255,255,0.05)',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}
+                          className="hover-bg"
+                        >
+                          <span style={{ fontWeight: 700 }}>{ticker}</span>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>{marketData[ticker]?.company || ''}</span>
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
              </div>
           </div>
         </div>
@@ -2742,85 +3008,121 @@ function MarketIntelligence({ watchlist, setWatchlist, marketData, analyticsData
   );
 }
 
-function StrategySimulator({ holdings }: { holdings: Holding[] }) {
+function StrategySimulator({ holdings, analyticsData, totalMarketValue }: { holdings: Holding[], analyticsData: any, totalMarketValue: number }) {
   const [selectedTicker, setSelectedTicker] = useState(holdings[0]?.ticker || '');
   const [simQty, setSimQty] = useState(0);
   const [simPrice, setSimPrice] = useState(0);
 
   const h = holdings.find(x => x.ticker === selectedTicker);
+  const ai = analyticsData[selectedTicker];
   
   // Calculations
   const currentShares = h?.shares || 0;
   const currentAvg = h?.avgCost || 0;
-  const currentVal = currentShares * currentAvg;
+  const currentVal = currentShares * (h?.livePrice || 0);
+  const currentCost = h?.totalCost || 0;
   
+  const purchaseCost = simQty * simPrice;
   const newShares = currentShares + simQty;
-  const newVal = currentVal + (simQty * simPrice);
-  const newAvg = newShares > 0 ? newVal / newShares : 0;
+  const newTotalCost = currentCost + purchaseCost;
+  const newAvg = newShares > 0 ? newTotalCost / newShares : 0;
+  
   const avgImprovement = currentAvg > 0 ? ((newAvg - currentAvg) / currentAvg) * 100 : 0;
+  const newTotalValue = newShares * (h?.livePrice || 0);
+  
+  // Weight Analysis
+  const currentWeight = totalMarketValue > 0 ? (currentVal / totalMarketValue) * 100 : 0;
+  const newWeight = (totalMarketValue + purchaseCost) > 0 ? (newTotalValue / (totalMarketValue + purchaseCost)) * 100 : 0;
+
+  // Break-even
+  const breakEvenDistance = h?.livePrice ? ((newAvg - h.livePrice) / h.livePrice) * 100 : 0;
+
+  // AI Target ROI
+  const targetPrice = ai?.targetPrice || 0;
+  const projectedROI = targetPrice > 0 ? ((targetPrice - newAvg) / newAvg) * 100 : 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       
       <div className="card" style={{ padding: '2rem' }}>
-        <h3 style={{ margin: '0 0 2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Target size={18} className="text-blue" /> "What-If" Purchase Simulator
+        <h3 style={{ margin: '0 0 2rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <Sparkles size={20} className="text-yellow" /> Institutional Strategy Lab
         </h3>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '2rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem' }}>
           
-          {/* Inputs */}
+          {/* Inputs Section */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <div>
-              <label className="text-muted" style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem' }}>Select Holding</label>
-              <select className="input-field" value={selectedTicker} onChange={e => setSelectedTicker(e.target.value)}>
-                {holdings.map(hx => <option key={hx.ticker} value={hx.ticker}>{hx.ticker} - {hx.company}</option>)}
-              </select>
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '12px' }}>
+               <label className="text-muted" style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem' }}>SELECT ACTIVE HOLDING</label>
+               <select className="input-field" value={selectedTicker} onChange={e => setSelectedTicker(e.target.value)}>
+                 {holdings.map(hx => <option key={hx.ticker} value={hx.ticker}>{hx.ticker} - {hx.company}</option>)}
+               </select>
             </div>
-            <div>
-              <label className="text-muted" style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem' }}>Simulated Quantity (Buy)</label>
-              <input type="number" className="input-field" value={simQty} onChange={e => setSimQty(Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="text-muted" style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem' }}>Simulated Price (EGP)</label>
-              <input type="number" className="input-field" value={simPrice} onChange={e => setSimPrice(Number(e.target.value))} />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+               <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '12px' }}>
+                  <label className="text-muted" style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem' }}>QUANTITY</label>
+                  <input type="number" className="input-field" value={simQty} onChange={e => setSimQty(Number(e.target.value))} />
+               </div>
+               <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '12px' }}>
+                  <label className="text-muted" style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem' }}>PRICE (EGP)</label>
+                  <input type="number" className="input-field" value={simPrice} onChange={e => setSimPrice(Number(e.target.value))} />
+               </div>
             </div>
           </div>
 
-          {/* Results Comparison */}
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '2rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '1rem' }}>
-              <span className="text-muted">Current Avg Cost</span>
-              <span style={{ fontWeight: 700 }}>EGP {currentAvg.toFixed(2)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '1rem' }}>
-              <span className="text-muted">New Avg Cost</span>
-              <span style={{ fontWeight: 700, color: 'var(--color-blue)' }}>EGP {newAvg.toFixed(2)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '1rem' }}>
-              <span className="text-muted">Avg Cost Change</span>
-              <span style={{ fontWeight: 700, color: avgImprovement <= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
-                {avgImprovement <= 0 ? '' : '+'}{avgImprovement.toFixed(2)}%
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span className="text-muted">Total Exposure</span>
-              <span style={{ fontWeight: 700 }}>EGP {newVal.toLocaleString()}</span>
-            </div>
+          {/* Projection Engine */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+             <div className="card" style={{ background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.1)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                   <span className="text-muted">Weight Impact</span>
+                   <span style={{ fontWeight: 700 }}>{currentWeight.toFixed(1)}% → <span className="text-blue">{newWeight.toFixed(1)}%</span></span>
+                </div>
+                <div style={{ height: '6px', background: '#333', borderRadius: '3px', overflow: 'hidden' }}>
+                   <div style={{ width: `${newWeight}%`, height: '100%', background: newWeight > 25 ? 'var(--color-red)' : 'var(--color-blue)' }}></div>
+                </div>
+             </div>
+
+             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="card" style={{ padding: '1rem', textAlign: 'center' }}>
+                   <p className="text-muted" style={{ fontSize: '0.7rem', margin: '0 0 5px' }}>Avg Cost Change</p>
+                   <h3 style={{ margin: 0, color: avgImprovement <= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
+                      {avgImprovement.toFixed(2)}%
+                   </h3>
+                </div>
+                <div className="card" style={{ padding: '1rem', textAlign: 'center' }}>
+                   <p className="text-muted" style={{ fontSize: '0.7rem', margin: '0 0 5px' }}>Break-Even Distance</p>
+                   <h3 style={{ margin: 0 }}>
+                      {breakEvenDistance > 0 ? '+' : ''}{breakEvenDistance.toFixed(2)}%
+                   </h3>
+                </div>
+             </div>
+
+             {targetPrice > 0 && (
+                <div className="card" style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.1)' }}>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                         <p className="text-muted" style={{ fontSize: '0.7rem', margin: 0 }}>AI TARGET PROJECTED ROI</p>
+                         <p style={{ fontSize: '0.8rem', opacity: 0.6 }}>Based on EGP {targetPrice} target</p>
+                      </div>
+                      <h2 className="text-green" style={{ margin: 0 }}>+{projectedROI.toFixed(1)}%</h2>
+                   </div>
+                </div>
+             )}
           </div>
 
         </div>
 
-        <div style={{ marginTop: '2rem', padding: '1rem', background: 'rgba(59,130,246,0.05)', borderRadius: '8px', borderLeft: '4px solid var(--color-blue)' }}>
+        <div style={{ marginTop: '2rem', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', borderLeft: '4px solid var(--color-blue)' }}>
           <p style={{ fontSize: '0.85rem', margin: 0, color: 'var(--text-secondary)' }}>
             <Info size={14} style={{ marginRight: '8px' }} />
-            <b>Strategy Note:</b> {avgImprovement < 0 
-              ? `Buying at EGP ${simPrice} would "Average Down" your position by ${Math.abs(avgImprovement).toFixed(2)}%. This lowers your break-even point.` 
-              : `Buying at EGP ${simPrice} would "Average Up" your position by ${avgImprovement.toFixed(2)}%. Ensure the upside potential justifies the higher cost basis.`}
+            <b>Institutional Note:</b> {newWeight > 20 
+               ? `This purchase will make ${selectedTicker} more than 20% of your portfolio. This exceeds standard institutional risk limits for a single position.` 
+               : `This trade maintains a healthy allocation profile. Your new break-even point is EGP ${newAvg.toFixed(2)}.`}
           </p>
         </div>
       </div>
-
     </div>
   );
 }

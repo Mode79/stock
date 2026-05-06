@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Holding } from '../types';
 import { getAIStockAnalysis } from '../services/aiForecast';
 import { Brain, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
 
 interface AnalyticsPanelProps {
   holdings: Holding[];
@@ -54,7 +55,7 @@ const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ holdings }) => {
 
           <div className="analytics-body">
             <div className="stat-item">
-              <span className="text-dim">Sentiment Score</span>
+              <span className="text-dim">Sentiment Score <InfoTooltip term="Sentiment Score" /></span>
               <div className="score-bar">
                 <div className="score-fill" style={{ width: `${analysis.sentimentScore}%`, backgroundColor: analysis.sentimentScore > 50 ? 'var(--color-green)' : 'var(--color-red)' }}></div>
               </div>
@@ -67,7 +68,7 @@ const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ holdings }) => {
                 <span className="font-mono text-blue font-bold">{analysis.forecast7d} EGP</span>
               </div>
               <div>
-                <span className="text-dim block text-xs">Volatility</span>
+                <span className="text-dim block text-xs">Volatility <InfoTooltip term="Volatility" /></span>
                 <span className="font-mono text-yellow font-bold">{analysis.volatility}%</span>
               </div>
             </div>
