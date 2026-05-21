@@ -6,7 +6,7 @@ import {
 import { 
   ArrowUpRight, ArrowDownRight, RefreshCw, AlertTriangle, 
   Wallet, DollarSign, Activity, CheckCircle2, Clock, Plus, PlusCircle, Trash2, X, Search, TrendingUp,
-  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Eye, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell
+  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Eye, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell, Pencil
 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line } from 'recharts';
 import { InfoTooltip } from './components/InfoTooltip';
@@ -247,6 +247,7 @@ function App() {
   const [watchlist, setWatchlist] = useState<string[]>(['COMI', 'EKHO', 'TMGH', 'ABUK']);
   const [staleData, setStaleData] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [activeTab, setActiveTab] = useState<'portfolio' | 'history' | 'health' | 'market' | 'simulator' | 'holdingHistory'>('portfolio');
   const [isLearningOpen, setIsLearningOpen] = useState(false);
   const [historyStock, setHistoryStock] = useState<string | null>(null);
@@ -394,6 +395,8 @@ function App() {
     let walletBalance = 0;
     let totalDeposited = 0;
     let realizedPnL = 0;
+    let dividendsCollected = 0;
+    const dividendsByTicker: Record<string, number> = {};
     const holdingsMap: Record<string, { shares: number; totalCost: number }> = {};
 
     const sortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -409,6 +412,10 @@ function App() {
           break;
         case 'Dividend':
           walletBalance += tx.price;
+          dividendsCollected += tx.price;
+          if (tx.ticker) {
+            dividendsByTicker[tx.ticker] = (dividendsByTicker[tx.ticker] || 0) + tx.price;
+          }
           break;
         case 'Buy':
           if (tx.ticker && tx.quantity) {
@@ -452,10 +459,10 @@ function App() {
         };
       });
 
-    return { holdings, walletBalance, totalDeposited, realizedPnL };
+    return { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker };
   };
 
-  const { holdings, walletBalance, totalDeposited, realizedPnL } = calculatePortfolio();
+  const { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker } = calculatePortfolio();
 
   const fetchLivePrices = async () => {
     try {
@@ -797,6 +804,15 @@ function App() {
                 <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {walletBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
                 <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Realized: EGP {realizedPnL.toLocaleString()}</p>
               </div>
+              <div className="card" style={{ borderLeft: '4px solid var(--color-green)', background: 'linear-gradient(135deg, rgba(16,185,129,0.07) 0%, transparent 100%)' }}>
+                <div className="card-header"><span className="card-title text-green">Dividends</span><ArrowUpRight size={20} className="text-green" /></div>
+                <h2 className="mono" style={{ fontSize: '2rem', color: 'var(--color-green)' }}>EGP {dividendsCollected.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                  {Object.keys(dividendsByTicker).length > 0
+                    ? `${Object.keys(dividendsByTicker).length} source${Object.keys(dividendsByTicker).length > 1 ? 's' : ''}`
+                    : 'No dividends recorded'}
+                </p>
+              </div>
               <div className="card" style={{ borderLeft: '4px solid var(--color-blue)', background: 'linear-gradient(135deg, rgba(59,130,246,0.05) 0%, transparent 100%)' }}>
                 <div className="card-header"><span className="card-title text-blue">Tax & Zakat</span><ShieldCheck size={20} className="text-blue" /></div>
                 <h2 className="mono" style={{ fontSize: '2rem' }}>
@@ -861,6 +877,71 @@ function App() {
             </div>
           </div>
           <UnrealizedPnLHistory transactions={transactions} />
+
+          {/* Dividend Breakdown Panel */}
+          {Object.keys(dividendsByTicker).length > 0 && (
+            <div className="card" style={{ marginTop: '1.5rem' }}>
+              <div className="card-header" style={{ padding: '1.5rem' }}>
+                <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ArrowUpRight size={18} className="text-green" /> Dividend Income by Symbol
+                </h3>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Total: <strong className="text-green">EGP {dividendsCollected.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                </span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>Company</th>
+                      <th style={{ textAlign: 'right' }}>Total Received (EGP)</th>
+                      <th style={{ textAlign: 'right' }}>% of Total Dividends</th>
+                      <th style={{ textAlign: 'right' }}>Yield on Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(dividendsByTicker)
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([ticker, amount]) => {
+                        const holding = holdings.find(h => h.ticker === ticker);
+                        const yieldOnCost = holding && holding.totalCost > 0
+                          ? ((amount / holding.totalCost) * 100).toFixed(2)
+                          : '—';
+                        const pct = dividendsCollected > 0
+                          ? ((amount / dividendsCollected) * 100).toFixed(1)
+                          : '0.0';
+                        return (
+                          <tr key={ticker}>
+                            <td style={{ fontWeight: 700 }}>{ticker}</td>
+                            <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                              {holding?.company || '—'}
+                            </td>
+                            <td className="mono" style={{ textAlign: 'right', color: 'var(--color-green)', fontWeight: 600 }}>
+                              +{amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
+                                <div style={{ width: '80px', height: '6px', background: 'var(--border-color)', borderRadius: '3px', overflow: 'hidden' }}>
+                                  <div style={{ width: `${pct}%`, height: '100%', background: 'var(--color-green)', borderRadius: '3px' }} />
+                                </div>
+                                <span className="mono" style={{ fontSize: '0.85rem' }}>{pct}%</span>
+                              </div>
+                            </td>
+                            <td className="mono" style={{ textAlign: 'right', color: yieldOnCost !== '—' ? 'var(--color-blue)' : 'var(--text-secondary)' }}>
+                              {yieldOnCost !== '—' ? `${yieldOnCost}%` : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                Yield on Cost = Total dividends received ÷ Cost basis of that holding
+              </div>
+            </div>
+          )}
           </>
         )}
 
@@ -919,10 +1000,17 @@ function App() {
                       <td className="mono" style={{ textAlign: 'right' }}>{tx.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                       <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{tx.fees || 0}</td>
                       <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>
-                        {(tx.type === 'Buy' ? (tx.quantity! * tx.price + tx.fees) : tx.type === 'Sell' ? (tx.quantity! * tx.price - tx.fees) : tx.price).toLocaleString()}
+                        {(tx.quantity ? (tx.quantity * tx.price) : tx.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </td>
                       <td style={{ textAlign: 'center' }}>
-                        <button className="icon-btn" onClick={() => deleteTransaction(tx.id)} title="Delete"><Trash2 size={16} className="text-red" /></button>
+                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                          <button className="icon-btn" onClick={() => setEditingTransaction(tx)} title="Edit">
+                            <Pencil size={14} className="text-blue" />
+                          </button>
+                          <button className="icon-btn" onClick={() => deleteTransaction(tx.id)} title="Delete">
+                            <Trash2 size={16} className="text-red" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1041,14 +1129,16 @@ function App() {
         </div>
       )}
 
-      {isModalOpen && (
-        <TransactionForm 
-          onClose={() => setIsModalOpen(false)} 
+      {(isModalOpen || editingTransaction) && (
+        <TransactionForm
+          initialData={editingTransaction || undefined}
+          onClose={() => { setIsModalOpen(false); setEditingTransaction(null); }}
           onSave={async (tx) => {
-            const id = Date.now().toString();
+            const id = editingTransaction ? editingTransaction.id : Date.now().toString();
             await saveTransaction({ ...tx, id });
             setIsModalOpen(false);
-          }} 
+            setEditingTransaction(null);
+          }}
         />
       )}
 
@@ -1084,22 +1174,26 @@ function App() {
 
 // --- SUB-COMPONENTS ---
 
-function TransactionForm({ onClose, onSave }: { onClose: () => void; onSave: (tx: any) => void }) {
+function TransactionForm({ onClose, onSave, initialData }: { onClose: () => void; onSave: (tx: any) => void; initialData?: Transaction }) {
+  const isEdit = !!initialData;
   const [formData, setFormData] = useState({
-    date: new Date().toISOString().split('T')[0],
-    type: 'Buy' as TransactionType,
-    ticker: '',
-    quantity: 0,
-    price: 0,
-    broker: 'Thndr',
-    fees: 0
+    date: initialData?.date ?? new Date().toISOString().split('T')[0],
+    type: (initialData?.type ?? 'Buy') as TransactionType,
+    ticker: initialData?.ticker ?? '',
+    quantity: initialData?.quantity ?? 0,
+    price: initialData?.price ?? 0,
+    broker: initialData?.broker ?? 'Thndr',
+    fees: initialData?.fees ?? 0
   });
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" style={{ maxWidth: '450px' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>New Transaction</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {isEdit ? <Pencil size={18} className="text-blue" /> : null}
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>{isEdit ? 'Edit Transaction' : 'New Transaction'}</h2>
+          </div>
           <button className="icon-btn" onClick={onClose}><X size={20} /></button>
         </div>
         <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -1119,16 +1213,26 @@ function TransactionForm({ onClose, onSave }: { onClose: () => void; onSave: (tx
               <input type="date" className="input-field" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
             </div>
           </div>
-          {['Buy', 'Sell'].includes(formData.type) && (
-            <div className="grid-2" style={{ gap: '1rem' }}>
+          {['Buy', 'Sell', 'Dividend'].includes(formData.type) && (
+            <div className={['Buy', 'Sell'].includes(formData.type) ? 'grid-2' : ''} style={{ gap: '1rem' }}>
               <div>
-                <label className="text-muted" style={{ fontSize: '0.8rem' }}>Ticker</label>
-                <input type="text" className="input-field" placeholder="e.g. SWDY" value={formData.ticker} onChange={e => setFormData({...formData, ticker: e.target.value.toUpperCase()})} />
+                <label className="text-muted" style={{ fontSize: '0.8rem' }}>
+                  {formData.type === 'Dividend' ? 'Source Symbol (Stock)' : 'Ticker'}
+                </label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="e.g. SWDY"
+                  value={formData.ticker}
+                  onChange={e => setFormData({...formData, ticker: e.target.value.toUpperCase()})}
+                />
               </div>
-              <div>
-                <label className="text-muted" style={{ fontSize: '0.8rem' }}>Quantity</label>
-                <input type="number" className="input-field" value={formData.quantity} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} />
-              </div>
+              {['Buy', 'Sell'].includes(formData.type) && (
+                <div>
+                  <label className="text-muted" style={{ fontSize: '0.8rem' }}>Quantity</label>
+                  <input type="number" className="input-field" value={formData.quantity} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} />
+                </div>
+              )}
             </div>
           )}
           <div>
@@ -1157,7 +1261,7 @@ function TransactionForm({ onClose, onSave }: { onClose: () => void; onSave: (tx
             </div>
           </div>
           <button className="btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => onSave(formData)}>
-            Save Transaction
+            {isEdit ? 'Update Transaction' : 'Save Transaction'}
           </button>
         </div>
       </div>
