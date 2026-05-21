@@ -45,6 +45,15 @@ BoltScan utilizes a sophisticated multi-tier architecture designed for low-laten
 - **TradingView Advanced Chart**: Full technical analysis suite with 1D/1W/1M/YTD resolutions and institutional toolbars.
 - **Real-time EGX30 Benchmarking**: Live tracking of the Egyptian index with high-fidelity fallback proxies.
 
+### 💰 Intelligent Dividend Tracking
+- **Isolated Dividend Analytics**: Tracks dividends separately from equity while remaining safely integrated in your wallet balance.
+- **Asset-Level Performance Breakdown**: Deep-dive analytics panel displaying total dividends received per asset, percentage contribution, and **Yield on Cost** relative to your original purchase price.
+- **Ticker Attribution**: Link every dividend payout directly to its source stock during transaction entry.
+
+### 📝 Full Transaction Lifecycle
+- **In-Place Transaction Editing**: High-precision modal editor allowing you to alter transaction fields (dates, types, tickers, prices, quantities, brokers, and fees) directly, performing automatic live state updates.
+- **Accurate Cost-Basis Math**: Transaction ledger displays gross values (Qty × Price) with fees separated cleanly to avoid visual compounding errors.
+
 ### 🧠 AI Strategy & Analysis
 - **One-Shot Global Analysis**: Batch-processes your entire portfolio and watchlist in a single AI run, updating sentiment, targets, and risks.
 - **Multi-Model Support**: Toggle between Gemini and OpenAI models based on analysis needs.
