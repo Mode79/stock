@@ -12,6 +12,9 @@ import { AreaChart, Area, LineChart, Line } from 'recharts';
 import { InfoTooltip } from './components/InfoTooltip';
 import './index.css';
 import { calculateRecommendation } from './utils/recommendationEngine';
+import { buildTechnicalProfile, resampleWeekly } from './utils/technicalAnalysis';
+import { parseFundamentals, scoreFundamentals } from './utils/fundamentals';
+import { backtestBullishSetup, returnCorrelation } from './utils/backtest';
 
 // --- TYPES ---
 type TransactionType = 'Buy' | 'Sell' | 'Deposit' | 'Withdraw' | 'Dividend';
@@ -2363,6 +2366,8 @@ function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: H
   const [visibleTickers, setVisibleTickers] = useState<string[]>([]);
   const [showTrend, setShowTrend] = useState(false);
   const [tickerHistories, setTickerHistories] = useState<Record<string, any[]>>({});
+  const [fundamentals, setFundamentals] = useState<Record<string, any[]>>({});
+  const [benchmarkHistory, setBenchmarkHistory] = useState<any[]>([]);
   const [lang, setLang] = useState<'EN' | 'AR'>('EN');
   const [showMarkers, setShowMarkers] = useState(false);
   const [markerSettings, setMarkerSettings] = useState({
@@ -2399,6 +2404,14 @@ function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: H
             console.error(`Failed history for ${ticker}`, e);
           }
         }));
+
+        // Benchmark (EGX30) for relative strength + beta, and real fundamentals.
+        fetch(`/api/history?symbol=^EGX30&range=${range}`)
+          .then(r => r.json()).then(j => { if (Array.isArray(j)) setBenchmarkHistory(j); })
+          .catch(() => {});
+        fetch(`/api/fundamentals?symbols=${visibleTickers.join(',')}`)
+          .then(r => r.json()).then(j => { if (j && typeof j === 'object') setFundamentals(j); })
+          .catch(() => {});
 
         // Align dates
         const allDates = new Set<string>();
@@ -2792,32 +2805,75 @@ function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: H
 
       {/* Intelligence & Analysis Grid */}
       <div style={{ marginTop: '3rem' }}>
-        <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
           <Sparkles size={22} className="text-blue" /> Institutional Sentiment & Analysis
         </h3>
+
+        {(() => {
+          // Portfolio concentration check: warn when holdings move together.
+          const visible = holdings.filter(h => visibleTickers.includes(h.ticker));
+          const benchClose = benchmarkHistory.map(p => p.close);
+          const pairs: { a: string; b: string; corr: number }[] = [];
+          for (let i = 0; i < visible.length; i++) {
+            for (let j = i + 1; j < visible.length; j++) {
+              const ha = tickerHistories[visible[i].ticker]?.map(p => p.close) || [];
+              const hb = tickerHistories[visible[j].ticker]?.map(p => p.close) || [];
+              if (ha.length > 10 && hb.length > 10) {
+                const c = returnCorrelation(ha, hb);
+                if (c > 0.6) pairs.push({ a: visible[i].ticker, b: visible[j].ticker, corr: c });
+              }
+            }
+          }
+          if (pairs.length === 0) return null;
+          pairs.sort((x, y) => y.corr - x.corr);
+          return (
+            <div style={{ marginBottom: '1.25rem', padding: '12px 16px', borderRadius: '12px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', display: 'flex', alignItems: 'center', gap: '12px', direction: lang === 'AR' ? 'rtl' : 'ltr' }}>
+              <Bell size={18} className="text-yellow" />
+              <div style={{ fontSize: '0.8rem' }}>
+                <strong>{lang === 'AR' ? 'تنبيه تركّز المحفظة:' : 'Concentration warning:'}</strong>{' '}
+                {lang === 'AR' ? 'هذه الأسهم تتحرك معاً بشكل كبير، مما يقلل التنويع الفعلي — ' : 'These holdings move together, reducing real diversification — '}
+                {pairs.slice(0, 3).map(p => `${p.a}↔${p.b} (${(p.corr * 100).toFixed(0)}%)`).join(', ')}
+                {benchClose.length === 0 ? '' : ''}
+              </div>
+            </div>
+          );
+        })()}
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
           {holdings.filter(h => visibleTickers.includes(h.ticker)).map(h => {
             const analysis = analyticsData[h.ticker];
-            
-            // Calculate technical indicators and local recommendation on the fly
-            const localRec = (() => {
+
+            // Total portfolio capital, for risk-based position sizing.
+            const portfolioCapital = holdings.reduce((sum, x) => sum + (x.livePrice || 0) * (x.shares || 0), 0);
+
+            // Build the full institutional-grade technical profile (daily + weekly),
+            // pull real fundamentals + benchmark, then run the engine with full context.
+            const benchClose = benchmarkHistory.map(p => p.close);
+            const profile = (() => {
               const hist = tickerHistories[h.ticker];
-              if (!hist || hist.length < 20) return null;
-              const currentPrice = h.livePrice || hist[hist.length - 1]?.close || 0;
-              let gains = 0, losses = 0;
-              const rsiPeriod = Math.min(hist.length - 1, 14);
-              for (let i = hist.length - rsiPeriod; i < hist.length; i++) {
-                const diff = hist[i].close - hist[i-1].close;
-                if (diff > 0) gains += diff; else losses -= diff;
-              }
-              const rs = (gains / rsiPeriod) / (losses / rsiPeriod || 1);
-              const rsi = 100 - (100 / (1 + rs));
-              const smaLen = Math.min(hist.length, 50);
-              const sma50 = hist.slice(-smaLen).reduce((a, b) => a + b.close, 0) / smaLen;
-              const support = Math.min(...hist.map(p => p.close));
-              const resistance = Math.max(...hist.map(p => p.close));
-              return calculateRecommendation({ currentPrice, rsi, sma50, support, resistance });
+              if (!hist || hist.length < 15) return null;
+              return buildTechnicalProfile(hist as any, benchClose.length > 2 ? benchClose : undefined);
             })();
+            const weeklyProfile = (() => {
+              const hist = tickerHistories[h.ticker];
+              if (!hist || hist.length < 40) return null;
+              return buildTechnicalProfile(resampleWeekly(hist as any) as any);
+            })();
+            const fundScore = scoreFundamentals(
+              fundamentals[h.ticker] ? parseFundamentals(h.ticker, fundamentals[h.ticker]) : null
+            );
+            const backtest = (() => {
+              const hist = tickerHistories[h.ticker];
+              if (!hist || hist.length < 80) return null;
+              return backtestBullishSetup(hist.map((p: any) => p.close));
+            })();
+            const localRec = profile ? calculateRecommendation(profile, {
+              fundamentals: fundScore,
+              weeklyTrendRegime: weeklyProfile?.trendRegime,
+              hasBenchmark: benchClose.length > 2,
+              capital: portfolioCapital,
+              backtest,
+            }) : null;
 
             const recVal = analysis?.recommendation || localRec?.recommendation || 'HOLD';
             const recValAr = analysis?.recommendation_ar || localRec?.recommendation_ar || 'انتظار';
@@ -2849,17 +2905,26 @@ function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: H
               return { perf, maxDD: maxDD * 100, vol };
             })();
 
+            const accent = isBullish ? 'var(--color-green)' : isBearish ? 'var(--color-red)' : 'var(--color-yellow)';
+            const conviction = localRec?.conviction ?? 50;
+            const riskColors: Record<string, string> = { LOW: 'var(--color-green)', MODERATE: 'var(--color-yellow)', HIGH: '#f97316', EXTREME: 'var(--color-red)' };
+            const perfVal = stats?.perf ?? profile?.perfPct ?? 0;
+            const ddVal = stats?.maxDD ?? profile?.maxDrawdown ?? 0;
+            const volVal = stats?.vol ?? profile?.annualizedVol ?? 0;
+            const aiNarrative = lang === 'AR' ? analysis?.narrative_ar : analysis?.narrative;
+            const signalsList = lang === 'AR' ? (localRec?.signals_ar || []) : (localRec?.signals || []);
+
             return (
-              <div key={h.ticker} className="card" style={{ 
-                padding: '1.5rem', 
-                borderTop: `4px solid ${isBullish ? 'var(--color-green)' : isBearish ? 'var(--color-red)' : 'var(--color-yellow)'}`,
+              <div key={h.ticker} className="card" style={{
+                padding: '1.5rem',
+                borderTop: `4px solid ${accent}`,
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '1rem',
                 position: 'relative',
-                transition: 'transform 0.2s',
                 cursor: 'default'
               }}>
+                {/* Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     {h.logoid ? (
@@ -2872,68 +2937,251 @@ function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: H
                       <p className="text-muted" style={{ fontSize: '0.75rem', margin: 0 }}>{h.company}</p>
                     </div>
                   </div>
-                  <div className={`badge ${isBullish ? 'badge-green' : isBearish ? 'badge-red' : 'badge-yellow'}`} style={{ padding: '4px 10px', fontSize: '0.7rem' }}>
-                    {lang === 'AR' ? recValAr : recVal}
+                  <div style={{ textAlign: 'right' }}>
+                    <div className={`badge ${isBullish ? 'badge-green' : isBearish ? 'badge-red' : 'badge-yellow'}`} style={{ padding: '4px 10px', fontSize: '0.72rem', fontWeight: 700 }}>
+                      {lang === 'AR' ? recValAr : recVal}
+                    </div>
+                    {localRec && (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '6px', marginTop: '5px' }}>
+                        <span title={localRec.confidenceReasons.join(' · ')} style={{
+                          fontSize: '0.55rem', fontWeight: 700, letterSpacing: '0.3px', padding: '2px 6px', borderRadius: '6px',
+                          background: localRec.dataConfidence === 'HIGH' ? 'rgba(16,185,129,0.15)' : localRec.dataConfidence === 'MEDIUM' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
+                          color: localRec.dataConfidence === 'HIGH' ? 'var(--color-green)' : localRec.dataConfidence === 'MEDIUM' ? 'var(--color-yellow)' : 'var(--color-red)',
+                        }}>
+                          {lang === 'AR' ? `ثقة ${localRec.dataConfidence_ar}` : `${localRec.dataConfidence} TRUST`}
+                        </span>
+                      </div>
+                    )}
+                    {localRec && (
+                      <div style={{ fontSize: '0.58rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        {lang === 'AR' ? 'الأفق' : 'Horizon'}: {localRec.horizon}
+                      </div>
+                    )}
                   </div>
                 </div>
 
+                {/* Conviction gauge */}
+                {localRec && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', marginBottom: '4px' }}>
+                      <span className="text-muted">{lang === 'AR' ? 'درجة الثقة' : 'Conviction'}</span>
+                      <span style={{ fontWeight: 700, color: accent }}>{conviction}%</span>
+                    </div>
+                    <div style={{ height: '6px', borderRadius: '4px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                      <div style={{ width: `${conviction}%`, height: '100%', background: accent, borderRadius: '4px', transition: 'width 0.4s' }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Risk stats */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '12px' }}>
                   <div style={{ textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
                     <p className="text-muted" style={{ fontSize: '0.65rem', marginBottom: '4px' }}>PERF ({range.toUpperCase()})</p>
-                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: (stats?.perf || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
-                      {stats ? `${stats.perf >= 0 ? '+' : ''}${stats.perf.toFixed(1)}%` : 'N/A'}
+                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: perfVal >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
+                      {(stats || profile) ? `${perfVal >= 0 ? '+' : ''}${perfVal.toFixed(1)}%` : 'N/A'}
                     </span>
                   </div>
                   <div style={{ textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
                     <p className="text-muted" style={{ fontSize: '0.65rem', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>MAX DD <InfoTooltip term="Max Drawdown" /></p>
                     <span className="mono" style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--color-red)' }}>
-                      {stats ? `-${stats.maxDD.toFixed(1)}%` : 'N/A'}
+                      {(stats || profile) ? `-${ddVal.toFixed(1)}%` : 'N/A'}
                     </span>
                   </div>
                   <div style={{ textAlign: 'center' }}>
                     <p className="text-muted" style={{ fontSize: '0.65rem', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>ANN. VOL <InfoTooltip term="Volatility" /></p>
                     <span className="mono" style={{ fontWeight: 700, fontSize: '0.9rem' }}>
-                      {stats ? `${stats.vol.toFixed(1)}%` : 'N/A'}
+                      {(stats || profile) ? `${volVal.toFixed(1)}%` : 'N/A'}
                     </span>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', padding: '0 4px' }}>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', direction: lang === 'AR' ? 'rtl' : 'ltr' }}>
-                      <span className="text-muted">{lang === 'AR' ? 'التوجه:' : 'Sentiment:'}</span>
-                      <span style={{ color: isBullish ? 'var(--color-green)' : isBearish ? 'var(--color-red)' : 'var(--color-yellow)', fontWeight: 600 }}>
-                        {lang === 'AR' ? sentValAr : sentVal}
+                {/* Fundamentals (real data only — never fabricated) */}
+                {fundScore.available && (() => {
+                  const fd = parseFundamentals(h.ticker, fundamentals[h.ticker]);
+                  const valColor = fundScore.valuation === 'UNDERVALUED' ? 'var(--color-green)' : fundScore.valuation === 'EXPENSIVE' ? 'var(--color-red)' : 'var(--color-yellow)';
+                  const cells = [
+                    { label: 'P/E', val: fd.pe !== null ? fd.pe.toFixed(1) : '—' },
+                    { label: 'ROE', val: fd.roe !== null ? `${fd.roe.toFixed(0)}%` : '—' },
+                    { label: 'D/E', val: fd.debtEquity !== null ? fd.debtEquity.toFixed(2) : '—' },
+                    { label: lang === 'AR' ? 'التوزيعات' : 'Div', val: fd.dividendYield !== null ? `${fd.dividendYield.toFixed(1)}%` : '—' },
+                  ];
+                  return (
+                    <div style={{ background: 'rgba(59,130,246,0.04)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '12px', padding: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--text-secondary)' }}>{lang === 'AR' ? 'الأساسيات' : 'FUNDAMENTALS'}</span>
+                        {fundScore.valuation !== 'UNKNOWN' && (
+                          <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '2px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', color: valColor }}>
+                            {lang === 'AR' ? fundScore.valuation_ar : fundScore.valuation}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px' }}>
+                        {cells.map(c => (
+                          <div key={c.label} style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>{c.label}</div>
+                            <div className="mono" style={{ fontSize: '0.8rem', fontWeight: 700 }}>{c.val}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Context strip: trend strength · relative strength · timeframe */}
+                {localRec && profile && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    <span style={{ fontSize: '0.58rem', padding: '3px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)' }}>
+                      {lang === 'AR' ? 'قوة الاتجاه' : 'Trend'}: <b style={{ color: localRec.trendStrength === 'TRENDING' ? 'var(--color-green)' : localRec.trendStrength === 'CHOPPY' ? 'var(--color-red)' : 'var(--text-secondary)' }}>ADX {profile.adx.toFixed(0)}</b>
+                    </span>
+                    {benchClose.length > 2 && (
+                      <span style={{ fontSize: '0.58rem', padding: '3px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)' }}>
+                        {lang === 'AR' ? 'مقابل المؤشر' : 'vs Index'}: <b style={{ color: profile.relStrengthPct >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{profile.relStrengthPct >= 0 ? '+' : ''}{profile.relStrengthPct.toFixed(0)}%</b>
                       </span>
-                   </div>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', direction: lang === 'AR' ? 'rtl' : 'ltr' }}>
-                      <span className="text-muted">{lang === 'AR' ? 'المستهدف:' : 'Target:'}</span>
-                      <span className="text-blue" style={{ fontWeight: 600 }}>{targetPriceVal ? `EGP ${targetPriceVal}` : 'N/A'}</span>
-                   </div>
-                </div>
+                    )}
+                    {localRec.timeframeAgreement !== 'UNKNOWN' && (
+                      <span style={{ fontSize: '0.58rem', padding: '3px 8px', borderRadius: '8px',
+                        background: localRec.timeframeAgreement === 'ALIGNED' ? 'rgba(16,185,129,0.12)' : localRec.timeframeAgreement === 'CONFLICT' ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)',
+                        color: localRec.timeframeAgreement === 'ALIGNED' ? 'var(--color-green)' : localRec.timeframeAgreement === 'CONFLICT' ? 'var(--color-red)' : 'var(--text-secondary)' }}>
+                        {lang === 'AR' ? 'الأطر الزمنية' : 'D+W'}: {localRec.timeframeAgreement === 'ALIGNED' ? (lang === 'AR' ? 'متفقة' : 'aligned') : localRec.timeframeAgreement === 'CONFLICT' ? (lang === 'AR' ? 'متعارضة' : 'conflict') : '—'}
+                      </span>
+                    )}
+                    {backtest?.reliable && (
+                      <span title={lang === 'AR' ? `${backtest.samples} حالة تاريخية` : `${backtest.samples} historical setups`} style={{ fontSize: '0.58rem', padding: '3px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)' }}>
+                        {lang === 'AR' ? 'الموثوقية التاريخية' : 'Backtest'}: <b style={{ color: backtest.winRate >= 55 ? 'var(--color-green)' : backtest.winRate >= 45 ? 'var(--color-yellow)' : 'var(--color-red)' }}>{backtest.winRate}%</b>
+                      </span>
+                    )}
+                  </div>
+                )}
 
-                <div style={{ 
-                  fontSize: '0.85rem', 
-                  color: 'var(--text-secondary)', 
-                  lineHeight: '1.6', 
-                  minHeight: '60px',
-                  direction: lang === 'AR' ? 'rtl' : 'ltr',
-                  textAlign: lang === 'AR' ? 'right' : 'left'
-                }}>
-                  {lang === 'AR' 
-                    ? (analysis?.narrative_ar || 'تحليل البيانات معلق. قم بتشغيل التحليل الشامل من لوحة التحكم الرئيسية لتوليد رؤى لهذا الأصل.') 
-                    : (analysis?.narrative || 'Intelligence data pending. Run global analysis from the main dashboard to generate insights for this asset.')}
-                </div>
+                {/* Trade plan */}
+                {localRec && (
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--text-secondary)' }}>{lang === 'AR' ? 'خطة التداول' : 'TRADE PLAN'}</span>
+                      <span style={{ fontSize: '0.6rem', padding: '2px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', color: riskColors[localRec.riskLevel] }}>
+                        {lang === 'AR' ? `مخاطر ${localRec.riskLevel_ar}` : `${localRec.riskLevel} RISK`}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.72rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span className="text-muted">{lang === 'AR' ? 'منطقة الدخول' : 'Entry'}</span>
+                        <span className="mono" style={{ fontWeight: 600 }}>{localRec.entryZone.low}–{localRec.entryZone.high}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span className="text-muted">{lang === 'AR' ? 'وقف الخسارة' : 'Stop'}</span>
+                        <span className="mono" style={{ fontWeight: 600, color: 'var(--color-red)' }}>{localRec.stopLoss}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span className="text-muted">{lang === 'AR' ? 'العائد/المخاطرة' : 'R:R'}</span>
+                        <span className="mono" style={{ fontWeight: 600, color: localRec.riskReward >= 1.5 ? 'var(--color-green)' : 'var(--color-yellow)' }}>{localRec.riskReward}:1</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span className="text-muted">{lang === 'AR' ? 'الصعود' : 'Upside'}</span>
+                        <span className="mono" style={{ fontWeight: 600, color: localRec.upsidePct >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{localRec.upsidePct >= 0 ? '+' : ''}{localRec.upsidePct}%</span>
+                      </div>
+                    </div>
+                    {/* Bear / Base / Bull targets */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px', gap: '6px' }}>
+                      {[
+                        { k: lang === 'AR' ? 'متشائم' : 'Bear', v: localRec.targets.bear, c: 'var(--color-red)' },
+                        { k: lang === 'AR' ? 'أساسي' : 'Base', v: localRec.targets.base, c: 'var(--color-blue)' },
+                        { k: lang === 'AR' ? 'متفائل' : 'Bull', v: localRec.targets.bull, c: 'var(--color-green)' },
+                      ].map(t => (
+                        <div key={t.k} style={{ flex: 1, textAlign: 'center', padding: '6px 4px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)' }}>
+                          <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', marginBottom: '2px' }}>{t.k}</div>
+                          <div className="mono" style={{ fontSize: '0.78rem', fontWeight: 700, color: t.c }}>{t.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
-                  {analysis?.key_metrics && analysis.key_metrics.length > 0 ? (
-                    analysis.key_metrics.slice(0, 3).map((m: string) => (
-                      <span key={m} style={{ fontSize: '0.6rem', padding: '2px 8px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}>{m}</span>
-                    ))
-                  ) : localRec ? (
-                    [`RSI Score: ${Number(localRec.score).toFixed(0)}`, `Target: EGP ${localRec.targetPrice}`].map((m: string) => (
-                      <span key={m} style={{ fontSize: '0.6rem', padding: '2px 8px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}>{m}</span>
-                    ))
-                  ) : null}
+                {/* Position sizing + probability cone */}
+                {localRec && (localRec.positionSizing || localRec.probabilityCone) && (
+                  <div style={{ display: 'grid', gridTemplateColumns: localRec.positionSizing && localRec.probabilityCone ? '1fr 1fr' : '1fr', gap: '10px' }}>
+                    {localRec.positionSizing && localRec.positionSizing.shares > 0 && (
+                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '10px' }}>
+                        <div style={{ fontSize: '0.58rem', color: 'var(--text-muted)', marginBottom: '4px' }}>{lang === 'AR' ? `حجم المركز (مخاطرة ${localRec.positionSizing.capitalAtRiskPct}%)` : `SIZE (risk ${localRec.positionSizing.capitalAtRiskPct}%)`}</div>
+                        <div className="mono" style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-blue)' }}>{localRec.positionSizing.shares.toLocaleString()} <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{lang === 'AR' ? 'سهم' : 'sh'}</span></div>
+                        <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>{lang === 'AR' ? 'أقصى خسارة' : 'max loss'} ≈ EGP {localRec.positionSizing.riskAmount.toLocaleString()}</div>
+                      </div>
+                    )}
+                    {localRec.probabilityCone && (
+                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '10px' }}>
+                        <div style={{ fontSize: '0.58rem', color: 'var(--text-muted)', marginBottom: '4px' }}>{lang === 'AR' ? 'نطاق 68% خلال 3 أشهر' : '68% range · 3 mo'}</div>
+                        <div className="mono" style={{ fontSize: '0.85rem', fontWeight: 700 }}>
+                          <span style={{ color: 'var(--color-red)' }}>{localRec.probabilityCone.lo68}</span>
+                          <span style={{ color: 'var(--text-muted)' }}> — </span>
+                          <span style={{ color: 'var(--color-green)' }}>{localRec.probabilityCone.hi68}</span>
+                        </div>
+                        <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>{lang === 'AR' ? 'إحصائياً من التذبذب' : 'statistical, from volatility'}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Factor breakdown */}
+                {localRec?.factors && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--text-secondary)' }}>{lang === 'AR' ? 'تحليل العوامل' : 'FACTOR BREAKDOWN'}</span>
+                    {localRec.factors.map(f => {
+                      const pos = f.score >= 0;
+                      const mag = Math.min(50, Math.abs(f.score) / 2);
+                      return (
+                        <div key={f.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.68rem' }}>
+                          <span style={{ width: '38%', color: 'var(--text-secondary)' }}>{lang === 'AR' ? f.label_ar : f.label}</span>
+                          <div style={{ flex: 1, position: 'relative', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>
+                            <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: '1px', background: 'rgba(255,255,255,0.15)' }} />
+                            <div style={{ position: 'absolute', top: 0, bottom: 0, borderRadius: '4px',
+                              left: pos ? '50%' : `${50 - mag}%`, width: `${mag}%`,
+                              background: pos ? 'var(--color-green)' : 'var(--color-red)' }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Key signals */}
+                {signalsList.length > 0 && (
+                  <div style={{ direction: lang === 'AR' ? 'rtl' : 'ltr' }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--text-secondary)' }}>{lang === 'AR' ? 'الإشارات الرئيسية' : 'KEY SIGNALS'}</span>
+                    <ul style={{ margin: '6px 0 0', paddingInlineStart: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {signalsList.slice(0, 4).map((s, i) => (
+                        <li key={i} style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* AI narrative (only when generated) */}
+                {aiNarrative && (
+                  <div style={{
+                    fontSize: '0.82rem',
+                    color: 'var(--text-secondary)',
+                    lineHeight: '1.6',
+                    paddingTop: '10px',
+                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                    direction: lang === 'AR' ? 'rtl' : 'ltr',
+                    textAlign: lang === 'AR' ? 'right' : 'left'
+                  }}>
+                    {aiNarrative}
+                  </div>
+                )}
+
+                {/* Invalidation — what would prove this wrong */}
+                {localRec && (
+                  <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', lineHeight: 1.45, fontStyle: 'italic', direction: lang === 'AR' ? 'rtl' : 'ltr' }}>
+                    ⚠ {lang === 'AR' ? localRec.invalidation_ar : localRec.invalidation}
+                  </div>
+                )}
+
+                {/* Sentiment + composite footer */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.06)', direction: lang === 'AR' ? 'rtl' : 'ltr' }}>
+                  <span style={{ color: accent, fontWeight: 600 }}>{lang === 'AR' ? sentValAr : sentVal}</span>
+                  {localRec
+                    ? <span className="text-muted">{lang === 'AR' ? 'النتيجة المركبة' : 'Composite'}: <span className="mono" style={{ color: accent, fontWeight: 700 }}>{localRec.compositeScore > 0 ? '+' : ''}{localRec.compositeScore}</span> · <span style={{ fontSize: '0.58rem' }}>{localRec.asOf}</span></span>
+                    : <span className="text-blue" style={{ fontWeight: 600 }}>{targetPriceVal ? `EGP ${targetPriceVal}` : 'N/A'}</span>}
                 </div>
               </div>
             );

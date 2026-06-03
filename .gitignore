@@ -34,3 +34,6 @@ scratch/
 # Database
 *.db
 *.sqlite
+
+# Claude assistant local settings
+.claude/

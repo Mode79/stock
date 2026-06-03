@@ -197,6 +197,36 @@ ${response}
               }
             }
 
+            // 1b. FUNDAMENTALS ENDPOINT (real EGX ratios from TradingView scanner)
+            if (req.method === 'GET' && url.includes('fundamentals')) {
+              const queryUrl = new URL(url, `http://${req.headers.host}`);
+              const symbols = (queryUrl.searchParams.get('symbols') || '')
+                .split(',').map(s => s.trim().toUpperCase().replace('EGX:', '').split('.')[0]).filter(Boolean);
+              if (symbols.length === 0) { res.setHeader('Content-Type', 'application/json'); res.end('{}'); return; }
+              try {
+                // Column order MUST match parseFundamentals() in src/utils/fundamentals.ts
+                const columns = ['name', 'close', 'price_earnings_ttm', 'return_on_equity',
+                  'debt_to_equity', 'earnings_per_share_basic_ttm', 'market_cap_basic', 'dividends_yield', 'sector'];
+                const tvRes = await fetch('https://scanner.tradingview.com/egypt/scan', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ symbols: { tickers: symbols.map(s => `EGX:${s}`), query: { types: [] } }, columns })
+                });
+                const tvData: any = await tvRes.json();
+                const out: Record<string, any[]> = {};
+                (tvData.data || []).forEach((item: any) => {
+                  const sym = item.s.replace('EGX:', '');
+                  out[sym] = item.d;
+                });
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify(out));
+                return;
+              } catch (e: any) {
+                res.writeHead(500).end(JSON.stringify({ error: e.message }));
+                return;
+              }
+            }
+
             // 2. AI ANALYZE ENDPOINT
             if (req.method === 'POST' && (url === '/ai-analyze' || url === '/api/ai-analyze')) {
               let body = '';
@@ -237,17 +267,16 @@ Programmatic Rating Determined by Rules:
 - Target Price: EGP ${recResult.targetPrice}
 
 Structure your response following these sections:
-1. COMPANY SNAPSHOT (Overview of business)
-2. DECISION DASHBOARD (Ratings & Quick Decision aligning with recommendation)
-3. FUNDAMENTAL ANALYSIS (Revenue, Profit, Cash Flow)
-4. KEY RATIOS (P/E, ROE, Debt/Equity with explanations)
-5. VALUATION (Explain target price and bull/bear cases)
-6. TECHNICAL ANALYSIS (Explain RSI, SMA50 support/resistance)
-7. RISK ANALYSIS (Company, Market, Red Flags)
-8. FINAL RECOMMENDATION (Aligning with calculated recommendation and entry/exit zones)
+1. COMPANY SNAPSHOT (Overview of business — qualitative only)
+2. DECISION DASHBOARD (Restate the rating & quick decision aligning with the recommendation)
+3. VALUATION (Explain the programmatic target price and the bull/bear cases in plain terms)
+4. TECHNICAL ANALYSIS (Explain what the provided RSI, SMA50, support/resistance imply)
+5. RISK ANALYSIS (Market & technical red flags derived ONLY from the data above)
+6. FINAL RECOMMENDATION (Aligning with the calculated recommendation and entry/exit zones)
 
 RULES:
-- Do not give generic answers. Use actual numbers.
+- Use ONLY the numbers provided above. Do NOT invent or estimate financial figures.
+- CRITICAL: You were given NO fundamental data (no earnings, P/E, ROE, debt). Do NOT state, guess, or imply any such figures. If you mention fundamentals at all, say they require separate review. Fabricating ratios is strictly forbidden.
 - Explain terms in simple language.
 - You MUST output exactly the calculated recommendation, recommendation_ar, sentiment, sentiment_ar, and targetPrice fields inside the JSON.
 - RETURN THE FINAL OUTPUT AS A VALID JSON OBJECT WITH THESE KEYS: 
@@ -360,20 +389,19 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                    - Programmatic Target Price: EGP ${rec.targetPrice}
                    `).join('\n')}
 
-                   For each stock, apply CFA-level rigor following this structure:
-                   1. Company Snapshot & Business Model
-                   2. Decision Dashboard (Ratings & Confidence aligning with programmatic rating)
-                   3. Fundamental Strength & Financial Health
-                   4. Key Ratios (P/E, ROE, Debt/Equity)
-                   5. Valuation (Explain target price)
-                   6. Technical Trend & Sentiment
-                   7. Risks & Red Flags
-                   
+                   For each stock, write a concise plain-language note following this structure:
+                   1. Company Snapshot & Business Model (qualitative only)
+                   2. Decision Dashboard (restate rating & confidence aligning with programmatic rating)
+                   3. Valuation (explain the programmatic target price)
+                   4. Technical Trend & Sentiment (interpret the provided RSI / SMA50 / support / resistance)
+                   5. Risks & Red Flags (derived ONLY from the data above)
+
                    Format the output as a SINGLE JSON object where keys are EXACTLY the ticker symbols and values are objects with:
                    "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "targetPrice", "narrative", "narrative_ar", "key_metrics" (array of strings).
-                   
+
                    RULES:
                    - You MUST output exactly the programmatic recommendation, recommendation_ar, sentiment, sentiment_ar, and targetPrice for each stock in the returned JSON object.
+                   - CRITICAL: No fundamental data (earnings, P/E, ROE, debt) was provided. Do NOT invent, estimate, or imply any such figures — base every statement strictly on the technical numbers given.
                    - Return ONLY the JSON. No markdown tags.`;
 
                    if (isLoggingEnabled) logAIInteraction(`Batch Analysis (${stocks?.length || 0} stocks) [REQUEST]`, provider, model || 'default', prompt, 'WAITING...');
