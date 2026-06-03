@@ -112,6 +112,11 @@ h1, h2, h3, h4, h5, h6 {
   animation: spin 1s linear infinite;
 }
 
+@keyframes athFloatPulse {
+  0%, 100% { box-shadow: 0 8px 32px rgba(250,204,21,0.2), 0 0 60px rgba(250,204,21,0.1); }
+  50% { box-shadow: 0 8px 48px rgba(250,204,21,0.35), 0 0 80px rgba(250,204,21,0.2); }
+}
+
 /* Grid Layouts */
 .grid-cards {
   display: grid;

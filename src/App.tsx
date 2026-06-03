@@ -6,7 +6,7 @@ import {
 import { 
   ArrowUpRight, ArrowDownRight, RefreshCw, AlertTriangle, 
   Wallet, DollarSign, Activity, CheckCircle2, Clock, Plus, PlusCircle, Trash2, X, Search, TrendingUp,
-  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Eye, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell, Pencil
+  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Eye, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell, Pencil, VolumeX, Volume2
 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line } from 'recharts';
 import { InfoTooltip } from './components/InfoTooltip';
@@ -246,6 +246,12 @@ function App() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [watchlist, setWatchlist] = useState<string[]>(['COMI', 'EKHO', 'TMGH', 'ABUK']);
   const [staleData, setStaleData] = useState(false);
+  const [pnlExtremes, setPnlExtremes] = useState<Record<string, { maxPnl: number; maxPnlDate: string; maxPnlPct: number; minPnl: number; minPnlDate: string; minPnlPct: number }>>({});
+  const [athAlertPlaying, setAthAlertPlaying] = useState(false);
+  const athAudioCtxRef = useRef<AudioContext | null>(null);
+  const athGainRef = useRef<GainNode | null>(null);
+  const athIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const athAlertAcknowledgedRef = useRef<Set<string>>(new Set());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [activeTab, setActiveTab] = useState<'portfolio' | 'history' | 'health' | 'market' | 'simulator' | 'holdingHistory'>('portfolio');
@@ -463,6 +469,239 @@ function App() {
   };
 
   const { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker } = calculatePortfolio();
+
+  // --- P&L EXTREMES CALCULATION ---
+  const computePnlExtremes = async () => {
+    if (holdings.length === 0 || transactions.length === 0) return;
+    const results: Record<string, { maxPnl: number; maxPnlDate: string; maxPnlPct: number; minPnl: number; minPnlDate: string; minPnlPct: number }> = {};
+
+    await Promise.all(holdings.map(async (h) => {
+      try {
+        // Find the first buy date for this ticker
+        const tickerTxs = transactions
+          .filter(t => t.ticker === h.ticker && t.type === 'Buy')
+          .sort((a, b) => a.date.localeCompare(b.date));
+        if (tickerTxs.length === 0) return;
+        const firstBuyDate = tickerTxs[0].date;
+
+        // Calculate the right range to get DAILY data (avoid 'max'/'5y' which return monthly)
+        const daysSinceBuy = Math.ceil((Date.now() - new Date(firstBuyDate).getTime()) / (1000 * 60 * 60 * 24));
+        const histRange = daysSinceBuy <= 30 ? '1m' : daysSinceBuy <= 90 ? '3m' : daysSinceBuy <= 180 ? '6m' : '1y';
+
+        const res = await fetch(`/api/history?symbol=${h.ticker}&range=${histRange}`);
+        const history = await res.json();
+        if (!Array.isArray(history) || history.length === 0) return;
+
+        // Filter history: only dates >= firstBuyDate AND strictly before today
+        const today = new Date().toISOString().split('T')[0];
+        const relevantHistory = history.filter((p: any) => {
+          const pDate = p.date.split('T')[0];
+          return pDate >= firstBuyDate && pDate < today;
+        });
+        if (relevantHistory.length === 0) return;
+
+        let maxPnl = -Infinity;
+        let maxPnlDate = '';
+        let minPnl = Infinity;
+        let minPnlDate = '';
+
+        // For each historical data point, compute holdings state up to that date
+        const allTickerTxs = transactions
+          .filter(t => t.ticker === h.ticker)
+          .sort((a, b) => a.date.localeCompare(b.date));
+
+        relevantHistory.forEach((point: any) => {
+          const pDate = point.date.split('T')[0];
+          let shares = 0;
+          let totalCost = 0;
+
+          allTickerTxs.forEach(tx => {
+            if (tx.date > pDate) return;
+            if (tx.type === 'Buy') {
+              shares += tx.quantity!;
+              totalCost += (tx.quantity! * tx.price) + (tx.fees || 0);
+            } else if (tx.type === 'Sell') {
+              const avgCost = shares > 0 ? totalCost / shares : 0;
+              const costBasisSold = avgCost * tx.quantity!;
+              shares -= tx.quantity!;
+              totalCost -= costBasisSold;
+            }
+          });
+
+          if (shares > 0 && totalCost > 0) {
+            const currentValue = shares * point.close;
+            const pnl = currentValue - totalCost;
+
+            if (pnl > maxPnl) {
+              maxPnl = pnl;
+              maxPnlDate = pDate;
+            }
+            if (pnl < minPnl) {
+              minPnl = pnl;
+              minPnlDate = pDate;
+            }
+          }
+        });
+
+        if (maxPnl !== -Infinity && minPnl !== Infinity) {
+          results[h.ticker] = {
+            maxPnl,
+            maxPnlDate,
+            maxPnlPct: h.totalCost > 0 ? (maxPnl / h.totalCost) * 100 : 0,
+            minPnl,
+            minPnlDate,
+            minPnlPct: h.totalCost > 0 ? (minPnl / h.totalCost) * 100 : 0
+          };
+        }
+      } catch (e) {
+        console.error(`Failed to compute P&L extremes for ${h.ticker}`, e);
+      }
+    }));
+
+    setPnlExtremes(results);
+  };
+
+  useEffect(() => {
+    if (holdings.length > 0 && transactions.length > 0) {
+      computePnlExtremes();
+    }
+  }, [holdings.length, transactions.length]);
+
+  // Compute ATH tickers as a derived value (NOT state) to avoid re-render loops
+  const athTickers: string[] = [];
+  if (Object.keys(pnlExtremes).length > 0 && holdings.length > 0) {
+    holdings.forEach(h => {
+      const extreme = pnlExtremes[h.ticker];
+      if (!extreme) return;
+      const value = h.shares * h.livePrice;
+      const pnl = value - h.totalCost;
+      if (pnl > extreme.maxPnl) {
+        athTickers.push(h.ticker);
+      }
+    });
+  }
+
+  // --- ATH AUDIO & VOICE ALERT ---
+  const playATHAlert = () => {
+    if (athAlertPlaying || athTickers.length === 0) return;
+    try {
+      // 1. Text-to-speech voice notification
+      const speakNotification = () => {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          // Cancel ongoing speech to avoid queue buildup
+          window.speechSynthesis.cancel();
+          const tickersStr = athTickers.join(', ');
+          const utterance = new SpeechSynthesisUtterance(`Warning! All-time high profit and loss exceeded for ${tickersStr}`);
+          utterance.rate = 0.9;
+          utterance.pitch = 1.0;
+          
+          if (window.speechSynthesis.getVoices) {
+            const voices = window.speechSynthesis.getVoices();
+            const englishVoice = voices.find(v => v.lang.startsWith('en'));
+            if (englishVoice) {
+              utterance.voice = englishVoice;
+            }
+          }
+          window.speechSynthesis.speak(utterance);
+        }
+      };
+
+      // 2. Chime sound using AudioContext
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioCtxClass();
+      athAudioCtxRef.current = ctx;
+
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(err => console.warn('Could not resume AudioContext directly:', err));
+      }
+
+      const masterGain = ctx.createGain();
+      masterGain.gain.value = 0.3;
+      masterGain.connect(ctx.destination);
+      athGainRef.current = masterGain;
+
+      const playChimeAndVoice = () => {
+        speakNotification();
+
+        const now = ctx.currentTime;
+        // Three-note ascending chime
+        const notes = [523.25, 659.25, 783.99]; // C5, E5, G5
+        notes.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const noteGain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          noteGain.gain.setValueAtTime(0, now + i * 0.15);
+          noteGain.gain.linearRampToValueAtTime(0.4, now + i * 0.15 + 0.05);
+          noteGain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.15 + 0.5);
+          osc.connect(noteGain);
+          noteGain.connect(masterGain);
+          osc.start(now + i * 0.15);
+          osc.stop(now + i * 0.15 + 0.6);
+        });
+      };
+
+      playChimeAndVoice();
+      // Repeating interval for continuous chime and voice notification
+      athIntervalRef.current = setInterval(playChimeAndVoice, 6000);
+      setAthAlertPlaying(true);
+    } catch (e) {
+      console.error('Audio alert failed:', e);
+    }
+  };
+
+  const stopATHAlert = () => {
+    if (athIntervalRef.current) {
+      clearInterval(athIntervalRef.current);
+      athIntervalRef.current = null;
+    }
+    if (athAudioCtxRef.current) {
+      athAudioCtxRef.current.close().catch(() => {});
+      athAudioCtxRef.current = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    // Mark current ATH tickers as acknowledged so alert doesn't re-trigger
+    athTickers.forEach(t => athAlertAcknowledgedRef.current.add(t));
+    setAthAlertPlaying(false);
+  };
+
+  // Re-trigger alert whenever the set of unacknowledged tickers changes, or alert is stopped
+  const athTickersKey = JSON.stringify(athTickers);
+  useEffect(() => {
+    if (athTickers.length === 0) return;
+    const unacknowledged = athTickers.filter(t => !athAlertAcknowledgedRef.current.has(t));
+    if (unacknowledged.length > 0 && !athAlertPlaying) {
+      playATHAlert();
+    }
+  }, [athTickersKey, athAlertPlaying]);
+
+  // Global user gesture listener to automatically unlock/resume AudioContext
+  useEffect(() => {
+    const handleGesture = () => {
+      if (athAudioCtxRef.current && athAudioCtxRef.current.state === 'suspended') {
+        athAudioCtxRef.current.resume().catch(() => {});
+      }
+    };
+    window.addEventListener('click', handleGesture);
+    window.addEventListener('keydown', handleGesture);
+    return () => {
+      window.removeEventListener('click', handleGesture);
+      window.removeEventListener('keydown', handleGesture);
+    };
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (athIntervalRef.current) clearInterval(athIntervalRef.current);
+      if (athAudioCtxRef.current) athAudioCtxRef.current.close().catch(() => {});
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   const fetchLivePrices = async () => {
     try {
@@ -849,6 +1088,8 @@ function App() {
                     <th onClick={() => requestSort('livePrice')} style={{ cursor: 'pointer', textAlign: 'right' }}>Live Price <SortIndicator column="livePrice" /></th>
                     <th style={{ textAlign: 'right' }}>Market Value</th>
                     <th style={{ textAlign: 'right' }}>P&L</th>
+                    <th style={{ textAlign: 'right' }}>Max P&L ▲</th>
+                    <th style={{ textAlign: 'right' }}>Min P&L ▼</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -856,8 +1097,9 @@ function App() {
                     const value = h.shares * h.livePrice;
                     const pnl = value - h.totalCost;
                     const pnlPct = h.totalCost > 0 ? (pnl / h.totalCost) * 100 : 0;
+                    const isNewPeak = pnlExtremes[h.ticker] && pnl > pnlExtremes[h.ticker].maxPnl;
                     return (
-                      <tr key={h.ticker} style={{ background: pnl >= 0 ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)' }}>
+                      <tr key={h.ticker} style={{ background: isNewPeak ? 'rgba(250, 204, 21, 0.08)' : pnl >= 0 ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)' }}>
                         <td style={{ fontWeight: 700 }}>{h.ticker}</td>
                         <td style={{ color: 'var(--text-secondary)' }}>{h.company}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{h.shares}</td>
@@ -865,9 +1107,43 @@ function App() {
                         <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{h.totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{h.livePrice.toFixed(2)}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                        <td className="mono" style={{ textAlign: 'right', color: pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
+                        <td className="mono" style={{ textAlign: 'right', color: isNewPeak ? '#facc15' : pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
                           <div>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
                           <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>{pnl >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%</div>
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right' }}>
+                          {pnlExtremes[h.ticker] ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                              <span style={{ color: 'var(--color-green)', fontWeight: 600, fontSize: '0.85rem' }}>
+                                +{pnlExtremes[h.ticker].maxPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              </span>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--color-green)', opacity: 0.8 }}>
+                                +{pnlExtremes[h.ticker].maxPnlPct.toFixed(2)}%
+                              </span>
+                              <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                {new Date(pnlExtremes[h.ticker].maxPnlDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}
+                              </span>
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>—</span>
+                          )}
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right' }}>
+                          {pnlExtremes[h.ticker] ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                              <span style={{ color: 'var(--color-red)', fontWeight: 600, fontSize: '0.85rem' }}>
+                                {pnlExtremes[h.ticker].minPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              </span>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--color-red)', opacity: 0.8 }}>
+                                {pnlExtremes[h.ticker].minPnlPct.toFixed(2)}%
+                              </span>
+                              <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                {new Date(pnlExtremes[h.ticker].minPnlDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}
+                              </span>
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>—</span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1166,6 +1442,60 @@ function App() {
           stock={priceHistoryStock} 
           onClose={() => setPriceHistoryStock(null)} 
         />
+      )}
+
+      {/* ATH Audio Alert Floating Banner */}
+      {athAlertPlaying && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '2rem',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'linear-gradient(135deg, rgba(250,204,21,0.15), rgba(251,146,60,0.15))',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid rgba(250,204,21,0.4)',
+            borderRadius: '16px',
+            padding: '14px 28px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            zIndex: 9999,
+            boxShadow: '0 8px 32px rgba(250,204,21,0.2), 0 0 60px rgba(250,204,21,0.1)',
+            animation: 'athFloatPulse 2s ease-in-out infinite'
+          }}
+        >
+          <Volume2 size={22} style={{ color: '#facc15', animation: 'spin 2s linear infinite' }} />
+          <div>
+            <div style={{ color: '#facc15', fontWeight: 700, fontSize: '0.95rem', letterSpacing: '0.5px' }}>
+              🔥 ALL-TIME HIGH P&L
+            </div>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '2px' }}>
+              {athTickers.join(', ')} {athTickers.length === 1 ? 'has' : 'have'} exceeded historical peak
+            </div>
+          </div>
+          <button
+            onClick={stopATHAlert}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 20px',
+              borderRadius: '10px',
+              border: '1px solid rgba(248,81,73,0.5)',
+              background: 'rgba(248,81,73,0.15)',
+              color: '#f85149',
+              fontWeight: 700,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(248,81,73,0.3)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(248,81,73,0.15)'; }}
+          >
+            <VolumeX size={16} /> Stop Alert
+          </button>
+        </div>
       )}
 
     </div>
