@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Info } from 'lucide-react';
 
 export const TERMS_INFO: Record<string, { definition: string, calculation: string, benefit: string }> = {

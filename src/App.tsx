@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  PieChart, Pie, Cell, ResponsiveContainer, Tooltip, 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, ReferenceLine
+  Cell, ResponsiveContainer, Tooltip, 
+  Bar, XAxis, YAxis, CartesianGrid, Legend, ReferenceLine
 } from 'recharts';
 import { 
   ArrowUpRight, ArrowDownRight, RefreshCw, AlertTriangle, 
-  Wallet, DollarSign, Activity, CheckCircle2, Clock, Plus, PlusCircle, Trash2, X, Search, TrendingUp,
-  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Eye, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell, Pencil, VolumeX, Volume2
+  Wallet, DollarSign, Activity, Clock, Plus, PlusCircle, Trash2, X, Search, TrendingUp,
+  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell, Pencil, VolumeX, Volume2
 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line } from 'recharts';
 import { InfoTooltip } from './components/InfoTooltip';
 import './index.css';
+import { calculateRecommendation } from './utils/recommendationEngine';
 
 // --- TYPES ---
 type TransactionType = 'Buy' | 'Sell' | 'Deposit' | 'Withdraw' | 'Dividend';
@@ -37,6 +38,7 @@ interface Holding {
   logoid?: string | null;
 }
 
+/*
 const getLogoUrl = (logoid: string | null | undefined) => {
   return logoid ? `https://s3-symbol-logo.tradingview.com/${logoid}.svg` : null;
 };
@@ -59,6 +61,7 @@ const SEED_TRANSACTIONS: Transaction[] = [
   { id: 's13', date: '2026-05-03', type: 'Buy', ticker: 'SWDY', quantity: 98, price: 87.50, broker: 'Telda', fees: 4.15 },
   { id: 's14', date: '2026-05-03', type: 'Buy', ticker: 'AMOC', quantity: 1155, price: 8.66, broker: 'Telda', fees: 5.50 },
 ];
+*/
 function LearningCenter() {
   const [activeSection, setActiveSection] = useState('basics');
 
@@ -242,8 +245,6 @@ function App() {
   const [analyticsData, setAnalyticsData] = useState<Record<string, any>>({});
   const [isUpdating, setIsUpdating] = useState(false);
   const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
-  const [analyzingTicker, setAnalyzingTicker] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [watchlist, setWatchlist] = useState<string[]>(['COMI', 'EKHO', 'TMGH', 'ABUK']);
   const [staleData, setStaleData] = useState(false);
   const [pnlExtremes, setPnlExtremes] = useState<Record<string, { maxPnl: number; maxPnlDate: string; maxPnlPct: number; minPnl: number; minPnlDate: string; minPnlPct: number }>>({});
@@ -468,7 +469,7 @@ function App() {
     return { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker };
   };
 
-  const { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker } = calculatePortfolio();
+  const { holdings, walletBalance, realizedPnL, dividendsCollected, dividendsByTicker } = calculatePortfolio();
 
   // --- P&L EXTREMES CALCULATION ---
   const computePnlExtremes = async () => {
@@ -718,7 +719,6 @@ function App() {
       });
       const data = await res.json();
       setMarketData(data);
-      setLastUpdated(new Date());
     } catch (err) {
       console.error(err);
       setStaleData(true);
@@ -734,7 +734,6 @@ function App() {
       return;
     }
     setIsAnalyzingAll(true);
-    setAnalyzingTicker('All Stocks');
     
     try {
       // 1. Sync prices first to ensure AI has latest data
@@ -831,6 +830,7 @@ function App() {
 
         const result = aiKey ? aiResultsProcessed[aiKey] : null;
         if (result) {
+          const matchingResult = results.find(r => r?.ticker === s.ticker);
           finalAnalytics[s.ticker] = {
             ...finalAnalytics[s.ticker],
             sentiment: result.sentiment || result.Sentiment || 'NEUTRAL',
@@ -843,7 +843,7 @@ function App() {
             key_metrics: result.key_metrics || result.Key_metrics || [],
             risks: result.risks || result.Risks || [],
             catalysts: result.catalysts || result.Catalysts || [],
-            rsi: s.stats?.rsi || '50.0',
+            rsi: matchingResult?.stats?.rsi || '50.0',
             lastUpdate: new Date().toISOString()
           };
         }
@@ -853,7 +853,6 @@ function App() {
     } catch (e: any) {
       alert(`AI Intelligence Error: ${e.message || 'Operation failed'}`);
     } finally {
-      setAnalyzingTicker(null);
       setIsAnalyzingAll(false);
     }
   };
@@ -1793,7 +1792,7 @@ function AIAnalysisModal({ stock, aiSettings, initialData, onSave, onClose }: { 
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: '1100px', width: '95%', direction: t.dir, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ maxWidth: '1100px', width: '95%', direction: t.dir as 'ltr' | 'rtl', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header" style={{ padding: '1.5rem 2rem', background: 'var(--bg-card)', position: 'sticky', top: 0, zIndex: 10, borderBottom: '1px solid var(--border-color)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
             <div style={{ background: 'rgba(234, 179, 8, 0.1)', padding: '10px', borderRadius: '12px' }}>
@@ -2277,7 +2276,7 @@ function UnrealizedPnLHistory({ transactions }: { transactions: Transaction[] })
               />
               <Tooltip 
                 contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px' }}
-                formatter={(val: number) => [`EGP ${val.toLocaleString()}`, 'Unrealized P&L']}
+                formatter={(val: any) => [`EGP ${Number(val).toLocaleString()}`, 'Unrealized P&L']}
               />
               <ReferenceLine y={0} stroke="var(--text-muted)" strokeDasharray="3 3" />
               <Area 
@@ -2799,8 +2798,35 @@ function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: H
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
           {holdings.filter(h => visibleTickers.includes(h.ticker)).map(h => {
             const analysis = analyticsData[h.ticker];
-            const isBullish = analysis?.sentiment?.toUpperCase().includes('BULL');
-            const isBearish = analysis?.sentiment?.toUpperCase().includes('BEAR');
+            
+            // Calculate technical indicators and local recommendation on the fly
+            const localRec = (() => {
+              const hist = tickerHistories[h.ticker];
+              if (!hist || hist.length < 20) return null;
+              const currentPrice = h.livePrice || hist[hist.length - 1]?.close || 0;
+              let gains = 0, losses = 0;
+              const rsiPeriod = Math.min(hist.length - 1, 14);
+              for (let i = hist.length - rsiPeriod; i < hist.length; i++) {
+                const diff = hist[i].close - hist[i-1].close;
+                if (diff > 0) gains += diff; else losses -= diff;
+              }
+              const rs = (gains / rsiPeriod) / (losses / rsiPeriod || 1);
+              const rsi = 100 - (100 / (1 + rs));
+              const smaLen = Math.min(hist.length, 50);
+              const sma50 = hist.slice(-smaLen).reduce((a, b) => a + b.close, 0) / smaLen;
+              const support = Math.min(...hist.map(p => p.close));
+              const resistance = Math.max(...hist.map(p => p.close));
+              return calculateRecommendation({ currentPrice, rsi, sma50, support, resistance });
+            })();
+
+            const recVal = analysis?.recommendation || localRec?.recommendation || 'HOLD';
+            const recValAr = analysis?.recommendation_ar || localRec?.recommendation_ar || 'انتظار';
+            const sentVal = analysis?.sentiment || localRec?.sentiment || 'NEUTRAL';
+            const sentValAr = analysis?.sentiment_ar || localRec?.sentiment_ar || 'حيادي';
+            const targetPriceVal = analysis?.targetPrice || localRec?.targetPrice || h.livePrice * 1.1;
+
+            const isBullish = sentVal.toUpperCase().includes('BULL') || recVal === 'BUY' || recVal === 'ACCUMULATE';
+            const isBearish = sentVal.toUpperCase().includes('BEAR') || recVal === 'SELL';
             
             const stats = (() => {
               const history = tickerHistories[h.ticker];
@@ -2847,7 +2873,7 @@ function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: H
                     </div>
                   </div>
                   <div className={`badge ${isBullish ? 'badge-green' : isBearish ? 'badge-red' : 'badge-yellow'}`} style={{ padding: '4px 10px', fontSize: '0.7rem' }}>
-                    {lang === 'AR' ? (analysis?.recommendation_ar || 'غير متاح') : (analysis?.recommendation || 'NO DATA')}
+                    {lang === 'AR' ? recValAr : recVal}
                   </div>
                 </div>
 
@@ -2876,12 +2902,12 @@ function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: H
                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', direction: lang === 'AR' ? 'rtl' : 'ltr' }}>
                       <span className="text-muted">{lang === 'AR' ? 'التوجه:' : 'Sentiment:'}</span>
                       <span style={{ color: isBullish ? 'var(--color-green)' : isBearish ? 'var(--color-red)' : 'var(--color-yellow)', fontWeight: 600 }}>
-                        {lang === 'AR' ? (analysis?.sentiment_ar || analysis?.sentiment || 'محايد') : (analysis?.sentiment || 'Neutral')}
+                        {lang === 'AR' ? sentValAr : sentVal}
                       </span>
                    </div>
                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', direction: lang === 'AR' ? 'rtl' : 'ltr' }}>
                       <span className="text-muted">{lang === 'AR' ? 'المستهدف:' : 'Target:'}</span>
-                      <span className="text-blue" style={{ fontWeight: 600 }}>{analysis?.targetPrice ? `EGP ${analysis.targetPrice}` : 'N/A'}</span>
+                      <span className="text-blue" style={{ fontWeight: 600 }}>{targetPriceVal ? `EGP ${targetPriceVal}` : 'N/A'}</span>
                    </div>
                 </div>
 
@@ -2899,9 +2925,15 @@ function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: H
                 </div>
 
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
-                  {(analysis?.key_metrics || []).slice(0, 3).map((m: string) => (
-                    <span key={m} style={{ fontSize: '0.6rem', padding: '2px 8px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}>{m}</span>
-                  ))}
+                  {analysis?.key_metrics && analysis.key_metrics.length > 0 ? (
+                    analysis.key_metrics.slice(0, 3).map((m: string) => (
+                      <span key={m} style={{ fontSize: '0.6rem', padding: '2px 8px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}>{m}</span>
+                    ))
+                  ) : localRec ? (
+                    [`RSI Score: ${Number(localRec.score).toFixed(0)}`, `Target: EGP ${localRec.targetPrice}`].map((m: string) => (
+                      <span key={m} style={{ fontSize: '0.6rem', padding: '2px 8px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}>{m}</span>
+                    ))
+                  ) : null}
                 </div>
               </div>
             );
@@ -2916,7 +2948,6 @@ function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: H
 function PerformanceDashboard({ transactions, holdings, analyticsData, portfolioGrade, walletBalance, marketData }: { transactions: Transaction[], holdings: Holding[], analyticsData: any, portfolioGrade: string, walletBalance: number, marketData: any }) {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState('6m');
   const [compareTickers, setCompareTickers] = useState<string[]>(() => {
     const saved = localStorage.getItem('boltscan_compare_tickers');
@@ -3004,7 +3035,7 @@ function PerformanceDashboard({ transactions, holdings, analyticsData, portfolio
           });
           setData(normalized);
         }
-      } catch (e: any) { setError(e.message); }
+      } catch (e: any) { console.error(e.message); }
       finally { setLoading(false); }
     };
 
@@ -3184,7 +3215,7 @@ function PerformanceDashboard({ transactions, holdings, analyticsData, portfolio
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="displayDate" />
               <YAxis tickFormatter={(v) => `${(v-100).toFixed(0)}%`} />
-              <Tooltip formatter={(v: number) => [`${(v-100).toFixed(2)}%`]} />
+              <Tooltip formatter={(v: any) => [`${(Number(v)-100).toFixed(2)}%`]} />
               <Legend />
               <Line type="monotone" dataKey="portfolio" name="Portfolio" stroke="var(--color-blue)" strokeWidth={3} dot={false} />
               <Line type="monotone" dataKey="market" name="EGX30" stroke="#94a3b8" strokeDasharray="5 5" dot={false} />
@@ -3220,7 +3251,8 @@ function PerformanceDashboard({ transactions, holdings, analyticsData, portfolio
           </h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
              {holdings.slice(0, 2).map(h => {
-                const sma50 = h.stats?.sma50 ? parseFloat(h.stats.sma50) : null;
+                const analysis = analyticsData[h.ticker];
+                const sma50 = analysis?.sma50 ? parseFloat(analysis.sma50) : null;
                 const stopPrice = sma50 ? sma50 * 0.95 : null;
                 const isSafe = stopPrice ? h.livePrice > stopPrice : true;
                 return (
@@ -3244,7 +3276,7 @@ function MarketIntelligence({ watchlist, setWatchlist, marketData, analyticsData
 
   // Sector Heatmap Calculation
   const sectors: Record<string, { change: number; count: number }> = {};
-  Object.entries(marketData).forEach(([ticker, data]: any) => {
+  Object.entries(marketData).forEach(([, data]: any) => {
     if (data.sector) {
       if (!sectors[data.sector]) sectors[data.sector] = { change: 0, count: 0 };
       sectors[data.sector].change += data.changePercent || 0;

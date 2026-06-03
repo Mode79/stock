@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Holding } from '../types';
+import type { Holding } from '../types';
 import { getAIStockAnalysis } from '../services/aiForecast';
 import { Brain, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { InfoTooltip } from './InfoTooltip';
@@ -19,7 +19,7 @@ const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ holdings }) => {
         holdings.map(async (h) => {
           // Simulate price history for the forecast (last 30 days)
           // In a real app, this would be actual historical data
-          const history = Array.from({ length: 30 }, (_, i) => 
+          const history = Array.from({ length: 30 }, () => 
             h.livePrice * (1 + (Math.random() - 0.5) * 0.1)
           );
           history.push(h.livePrice);

@@ -4,7 +4,9 @@ import YahooFinanceClass from 'yahoo-finance2'
 import fs from 'fs'
 import path from 'path'
 import { exec } from 'child_process'
+// @ts-ignore
 import Database from 'better-sqlite3';
+import { calculateRecommendation } from './src/utils/recommendationEngine'
 
 // --- DATABASE INITIALIZATION ---
 const db = new Database(path.join(process.cwd(), 'portfolio.db'));
@@ -94,7 +96,7 @@ ${response}
             response_format: { type: 'json_object' }
           })
         });
-        const data = await res.json();
+        const data: any = await res.json();
         if (data.error) {
           if (data.error.code === 'insufficient_quota' || data.error.code === 'rate_limit_exceeded') {
              if (retryCount < 1) {
@@ -116,7 +118,7 @@ ${response}
             generationConfig: { response_mime_type: "application/json" }
           })
         });
-        const data = await res.json();
+        const data: any = await res.json();
         if (data.error) {
           if (data.error.status === 'RESOURCE_EXHAUSTED' || data.error.code === 429) {
              if (retryCount < 2) {
@@ -179,8 +181,8 @@ ${response}
                     columns: ['name', 'description', 'logoid'], sort: { sortBy: 'name', sortOrder: 'asc' }, range: [0, 15]
                   })
                 });
-                const dataName = await tvRes.json();
-                const dataDesc = await tvResDesc.json();
+                const dataName: any = await tvRes.json();
+                const dataDesc: any = await tvResDesc.json();
                 const resultsMap = new Map();
                 [...(dataName.data || []), ...(dataDesc.data || [])].forEach((item: any) => {
                   const symbol = item.s.replace('EGX:', '');
@@ -213,6 +215,9 @@ ${response}
 
                   console.log(`[AI Proxy] Single Analysis | Provider: ${provider} | Model: ${model} | Ticker: ${ticker}`);
 
+                  // Programmatically calculate the recommendation, sentiment, and target price
+                  const recResult = calculateRecommendation(stats as any);
+
                   const prompt = `Act as a senior financial analyst (CFA-level) and an educator for a non-expert investor.
 Analyze stock: ${ticker} (${company})
 
@@ -226,19 +231,25 @@ Current Data:
 - Support/Resistance: ${stats?.support || 'N/A'} / ${stats?.resistance || 'N/A'}
 - Recent Prices: ${(history || []).slice(-10).map((h:any) => h.close).join(', ')}
 
+Programmatic Rating Determined by Rules:
+- Recommendation: ${recResult.recommendation} (${recResult.recommendation_ar})
+- Sentiment: ${recResult.sentiment} (${recResult.sentiment_ar})
+- Target Price: EGP ${recResult.targetPrice}
+
 Structure your response following these sections:
 1. COMPANY SNAPSHOT (Overview of business)
-2. DECISION DASHBOARD (Ratings & Quick Decision)
+2. DECISION DASHBOARD (Ratings & Quick Decision aligning with recommendation)
 3. FUNDAMENTAL ANALYSIS (Revenue, Profit, Cash Flow)
 4. KEY RATIOS (P/E, ROE, Debt/Equity with explanations)
-5. VALUATION (Fair value estimate, Base/Bull/Bear cases)
-6. TECHNICAL ANALYSIS (Trend, Support, Resistance)
+5. VALUATION (Explain target price and bull/bear cases)
+6. TECHNICAL ANALYSIS (Explain RSI, SMA50 support/resistance)
 7. RISK ANALYSIS (Company, Market, Red Flags)
-8. FINAL RECOMMENDATION (Buy/Hold/Sell, Entry/Exit zones)
+8. FINAL RECOMMENDATION (Aligning with calculated recommendation and entry/exit zones)
 
 RULES:
 - Do not give generic answers. Use actual numbers.
 - Explain terms in simple language.
+- You MUST output exactly the calculated recommendation, recommendation_ar, sentiment, sentiment_ar, and targetPrice fields inside the JSON.
 - RETURN THE FINAL OUTPUT AS A VALID JSON OBJECT WITH THESE KEYS: 
   "sentiment", "sentiment_ar", 
   "recommendation", "recommendation_ar", 
@@ -261,14 +272,15 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                     }
 
                     const parsed = JSON.parse(aiText);
+                    // Override with programmatically calculated values to guarantee correctness
                     const standardized = {
-                      sentiment: parsed.sentiment || parsed.Sentiment || 'NEUTRAL',
-                      sentiment_ar: parsed.sentiment_ar || 'حيادي',
-                      recommendation: parsed.recommendation || parsed.Recommendation || 'HOLD',
-                      recommendation_ar: parsed.recommendation_ar || 'انتظار',
+                      sentiment: recResult.sentiment,
+                      sentiment_ar: recResult.sentiment_ar,
+                      recommendation: recResult.recommendation,
+                      recommendation_ar: recResult.recommendation_ar,
+                      targetPrice: recResult.targetPrice,
                       narrative: parsed.narrative || parsed.Narrative || parsed.strategy || parsed.Strategy || parsed.deepNarrative || 'Analysis generation failed.',
                       narrative_ar: parsed.narrative_ar || 'فشل توليد التحليل باللغة العربية.',
-                      targetPrice: parsed.targetPrice || parsed.TargetPrice || (stats?.currentPrice || 0) * 1.1,
                       key_metrics: Array.isArray(parsed.key_metrics) ? parsed.key_metrics : (typeof parsed.key_metrics === 'object' && parsed.key_metrics !== null ? Object.entries(parsed.key_metrics).map(([k,v]) => `${k}: ${v}`) : []),
                       risks: Array.isArray(parsed.risks) ? parsed.risks : (typeof parsed.risks === 'object' && parsed.risks !== null ? Object.values(parsed.risks) : []),
                       catalysts: Array.isArray(parsed.catalysts) ? parsed.catalysts : (typeof parsed.catalysts === 'object' && parsed.catalysts !== null ? Object.values(parsed.catalysts) : [])
@@ -284,8 +296,22 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                       logAIInteraction(`Single Analysis: ${ticker} [CRITICAL ERROR]`, provider, model || 'default', 'See request above', errorMsg);
                     }
                     
-                    res.statusCode = 500;
-                    res.end(JSON.stringify({ error: errorMsg }));
+                    // Fallback to purely programmatic output if AI fails entirely
+                    const fallbackResult = {
+                      sentiment: recResult.sentiment,
+                      sentiment_ar: recResult.sentiment_ar,
+                      recommendation: recResult.recommendation,
+                      recommendation_ar: recResult.recommendation_ar,
+                      targetPrice: recResult.targetPrice,
+                      narrative: `Technical indicators calculation completed. The stock is currently rated ${recResult.recommendation} with a programmatic target price of EGP ${recResult.targetPrice} based on RSI ${stats.rsi} and SMA50 ${stats.sma50}.`,
+                      narrative_ar: `اكتمل حساب المؤشرات الفنية. السهم مصنف حالياً ${recResult.recommendation_ar} مع سعر مستهدف برامجي EGP ${recResult.targetPrice} بناءً على مؤشر القوة النسبية RSI ${stats.rsi} ومتوسط 50 يوم SMA50 ${stats.sma50}.`,
+                      key_metrics: [`RSI: ${stats.rsi}`, `SMA50: ${stats.sma50}`, `Support: ${stats.support}`, `Resistance: ${stats.resistance}`],
+                      risks: ['AI narrative generation failed. Relying on fallback technical metrics only.'],
+                      catalysts: ['Review support floor levels for entry, and resistance for exit.']
+                    };
+                    
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify(fallbackResult));
                   }
                 } catch (e: any) {
                   console.error('[Proxy AI Analyze error]:', e.message);
@@ -312,32 +338,43 @@ Return ONLY the JSON. No markdown outside the JSON.`;
 
                   console.log(`[AI Proxy] Batch Analysis | Provider: ${provider} | Model: ${model} | Count: ${stocks?.length}`);
 
+                  // Pre-calculate programmatic recommendations for all stocks
+                  const precalculated = (stocks || []).map((s: any) => {
+                    const rec = calculateRecommendation(s.stats);
+                    return { s, rec };
+                  });
+
                   const prompt = `Act as a Senior Financial Analyst with CFA-level expertise.
                    Perform a rigorous portfolio-wide analysis for the following stocks:
                    
                    DATA:
-                   ${(stocks || []).map((s:any) => `
+                   ${precalculated.map(({ s, rec }: { s: any; rec: any }) => `
                    STOCK: ${s?.company} (${s?.ticker})
                    - Price: EGP ${s?.stats?.currentPrice || 'N/A'}
                    - RSI: ${s?.stats?.rsi || 'N/A'}
                    - SMA50: ${s?.stats?.sma50 || 'N/A'}
                    - Support/Resistance: ${s?.stats?.support || 'N/A'} / ${s?.stats?.resistance || 'N/A'}
                    - Recent Close: ${(s?.history || []).map((h:any)=>h.close).join(', ')}
+                   - Programmatic Rating: ${rec.recommendation} (${rec.recommendation_ar})
+                   - Programmatic Sentiment: ${rec.sentiment} (${rec.sentiment_ar})
+                   - Programmatic Target Price: EGP ${rec.targetPrice}
                    `).join('\n')}
 
                    For each stock, apply CFA-level rigor following this structure:
                    1. Company Snapshot & Business Model
-                   2. Decision Dashboard (Ratings & Confidence)
+                   2. Decision Dashboard (Ratings & Confidence aligning with programmatic rating)
                    3. Fundamental Strength & Financial Health
                    4. Key Ratios (P/E, ROE, Debt/Equity)
-                   5. Valuation (Relative & DCF)
+                   5. Valuation (Explain target price)
                    6. Technical Trend & Sentiment
                    7. Risks & Red Flags
                    
                    Format the output as a SINGLE JSON object where keys are EXACTLY the ticker symbols and values are objects with:
                    "sentiment", "sentiment_ar", "recommendation", "recommendation_ar", "targetPrice", "narrative", "narrative_ar", "key_metrics" (array of strings).
                    
-                   Return ONLY the JSON. No markdown tags.`;
+                   RULES:
+                   - You MUST output exactly the programmatic recommendation, recommendation_ar, sentiment, sentiment_ar, and targetPrice for each stock in the returned JSON object.
+                   - Return ONLY the JSON. No markdown tags.`;
 
                    if (isLoggingEnabled) logAIInteraction(`Batch Analysis (${stocks?.length || 0} stocks) [REQUEST]`, provider, model || 'default', prompt, 'WAITING...');
                    
@@ -349,12 +386,61 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                        logAIInteraction(`Batch Analysis (${stocks?.length || 0} stocks) [RESPONSE]`, provider, model || 'default', 'See request above', aiText);
                      }
                      
+                     let parsed: Record<string, any> = {};
+                     try {
+                       parsed = JSON.parse(aiText);
+                     } catch (e) {
+                       console.error('Failed to parse batch AI text, using fallback:', e);
+                     }
+
+                     const finalResults: Record<string, any> = {};
+                     precalculated.forEach(({ s, rec }: { s: any; rec: any }) => {
+                       const cleanTicker = s.ticker.toUpperCase().split('.')[0].replace('EGX:', '').trim();
+                       const aiKey = Object.keys(parsed).find(k => {
+                         const cleanK = k.toUpperCase().split('.')[0].replace('EGX:', '').trim();
+                         return cleanK === cleanTicker || s.ticker.toUpperCase() === k.toUpperCase();
+                       });
+
+                       const aiData = aiKey ? parsed[aiKey] : {};
+                       finalResults[s.ticker] = {
+                         sentiment: rec.sentiment,
+                         sentiment_ar: rec.sentiment_ar,
+                         recommendation: rec.recommendation,
+                         recommendation_ar: rec.recommendation_ar,
+                         targetPrice: rec.targetPrice,
+                         narrative: aiData.narrative || aiData.Narrative || `Technical indicators analysis completed. The stock is rated ${rec.recommendation} with a programmatic target price of EGP ${rec.targetPrice}.`,
+                         narrative_ar: aiData.narrative_ar || aiData.Narrative_ar || `اكتمل تحليل المؤشرات الفنية. السهم مصنف ${rec.recommendation_ar} مع سعر مستهدف برامجي EGP ${rec.targetPrice}.`,
+                         key_metrics: aiData.key_metrics || aiData.Key_metrics || [`RSI: ${s.stats?.rsi || 'N/A'}`, `SMA50: ${s.stats?.sma50 || 'N/A'}`],
+                         risks: aiData.risks || aiData.Risks || ['AI narrative generation failed. Relying on programmatic parameters.'],
+                         catalysts: aiData.catalysts || aiData.Catalysts || ['Review support floor levels.']
+                       };
+                     });
+
                      res.setHeader('Content-Type', 'application/json');
-                     res.end(aiText);
+                     res.end(JSON.stringify(finalResults));
                    } catch (e: any) {
                      const errorMsg = e.message || 'Unknown Batch AI Error';
                      if (isLoggingEnabled) logAIInteraction(`Batch Analysis [ERROR]`, provider, model || 'default', 'See request above', errorMsg);
-                     res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: errorMsg }));
+                     
+                     // Fallback to purely programmatic output for all stocks on error
+                     const fallbackResults: Record<string, any> = {};
+                     precalculated.forEach(({ s, rec }: { s: any; rec: any }) => {
+                       fallbackResults[s.ticker] = {
+                         sentiment: rec.sentiment,
+                         sentiment_ar: rec.sentiment_ar,
+                         recommendation: rec.recommendation,
+                         recommendation_ar: rec.recommendation_ar,
+                         targetPrice: rec.targetPrice,
+                         narrative: `Technical indicators analysis completed. Rated ${rec.recommendation} with a programmatic target price of EGP ${rec.targetPrice} based on RSI ${s.stats?.rsi || 'N/A'} and SMA50 ${s.stats?.sma50 || 'N/A'}.`,
+                         narrative_ar: `اكتمل تحليل المؤشرات الفنية. السهم مصنف ${rec.recommendation_ar} مع سعر مستهدف برامجي EGP ${rec.targetPrice} بناءً على مؤشر RSI ${s.stats?.rsi || 'N/A'} ومتوسط SMA50 ${s.stats?.sma50 || 'N/A'}.`,
+                         key_metrics: [`RSI: ${s.stats?.rsi || 'N/A'}`, `SMA50: ${s.stats?.sma50 || 'N/A'}`, `Support: ${s.stats?.support || 'N/A'}`, `Resistance: ${s.stats?.resistance || 'N/A'}`],
+                         risks: ['AI batch analysis endpoint errored. Using fallback technical parameters only.'],
+                         catalysts: ['Review support levels for entry, and resistance for exit.']
+                       };
+                     });
+
+                     res.setHeader('Content-Type', 'application/json');
+                     res.end(JSON.stringify(fallbackResults));
                    }
                 } catch (e: any) {
                   res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: e.message || 'Malformed Request' }));
@@ -502,7 +588,7 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ symbols: { tickers: tvTickers, query: { types: [] } }, columns: ['close', 'change', 'change_abs', 'description', 'sector', 'logoid'] })
                   });
-                  const tvData = await tvRes.json();
+                  const tvData: any = await tvRes.json();
                   console.log(`[AI Proxy] TradingView Response: ${tvData.data?.length || 0} symbols found`);
                   
                   const tvMap: Record<string, any> = {};
@@ -573,7 +659,7 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                         return;
                       }
                       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-                      const data = await response.json();
+                      const data: any = await response.json();
                       res.end(JSON.stringify(data.models || []));
                     } else if (provider === 'openai') {
                       const apiKey = keyFromHeader || OPENAI_KEY_ENV;
@@ -584,7 +670,7 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                       const response = await fetch('https://api.openai.com/v1/models', {
                         headers: { 'Authorization': `Bearer ${apiKey}` }
                       });
-                      const data = await response.json();
+                      const data: any = await response.json();
                       res.end(JSON.stringify(data.data || []));
                     }
                     return;

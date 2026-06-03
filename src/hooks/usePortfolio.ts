@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { Transaction, Holding, PortfolioStats, COMPANY_META } from '../types';
+import type { Transaction, Holding, PortfolioStats } from '../types';
+import { COMPANY_META } from '../types';
 
 export function usePortfolio(transactions: Transaction[], livePrices: Record<string, number>) {
   return useMemo(() => {

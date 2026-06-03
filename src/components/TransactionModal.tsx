@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Plus, Minus, DollarSign, Wallet } from 'lucide-react';
-import { Transaction, TransactionType, COMPANY_META } from '../types';
+import { X } from 'lucide-react';
+import type { Transaction, TransactionType } from '../types';
+import { COMPANY_META } from '../types';
 
 interface TransactionModalProps {
   isOpen: boolean;

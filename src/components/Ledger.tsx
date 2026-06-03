@@ -1,5 +1,5 @@
 import React from 'react';
-import { Transaction } from '../types';
+import type { Transaction } from '../types';
 import { ArrowUpRight, ArrowDownRight, DollarSign, Wallet, Trash2 } from 'lucide-react';
 
 interface LedgerProps {
