@@ -562,10 +562,14 @@ function App() {
     await Promise.all(holdings.map(async (h) => {
       try {
         const livePnL = (h.shares * h.livePrice) - h.totalCost;
+        const livePnLPct = h.totalCost > 0 ? (livePnL / h.totalCost) * 100 : 0;
+
         let maxPnl = livePnL;
         let maxPnlDate = today;
+        let maxPnlPct = livePnLPct;
         let minPnl = livePnL;
         let minPnlDate = today;
+        let minPnlPct = livePnLPct;
 
         // Find the first buy date for this ticker
         const tickerTxs = transactions
@@ -612,30 +616,33 @@ function App() {
                 if (shares > 0 && totalCost > 0) {
                   const currentValue = shares * point.close;
                   const pnl = currentValue - totalCost;
+                  const pnlPct = (pnl / totalCost) * 100;
 
                   if (pnl > maxPnl) {
                     maxPnl = pnl;
                     maxPnlDate = pDate;
+                    maxPnlPct = pnlPct;
                   }
                   if (pnl < minPnl) {
                     minPnl = pnl;
                     minPnlDate = pDate;
+                    minPnlPct = pnlPct;
                   }
                 }
               });
             }
           } catch (fetchErr) {
-            // Baseline live PnL remains
+            // Live baseline remains
           }
         }
 
         results[h.ticker] = {
           maxPnl,
           maxPnlDate,
-          maxPnlPct: h.totalCost > 0 ? (maxPnl / h.totalCost) * 100 : 0,
+          maxPnlPct,
           minPnl,
           minPnlDate,
-          minPnlPct: h.totalCost > 0 ? (minPnl / h.totalCost) * 100 : 0
+          minPnlPct
         };
       } catch (e) {
         console.error(`Failed to compute P&L extremes for ${h.ticker}`, e);
@@ -645,11 +652,13 @@ function App() {
     setPnlExtremes(results);
   };
 
+  const holdingsKey = holdings.map(h => `${h.ticker}:${h.shares}:${h.livePrice}:${h.totalCost}`).join('|');
+
   useEffect(() => {
     if (holdings.length > 0 && transactions.length > 0) {
       computePnlExtremes();
     }
-  }, [holdings.length, transactions.length]);
+  }, [holdingsKey, transactions.length]);
 
   // Compute ATH tickers as a derived value (NOT state) to avoid re-render loops
   const athTickers: string[] = [];
@@ -1285,14 +1294,14 @@ function App() {
                         <td className="mono" style={{ textAlign: 'right' }}>
                           {pnlExtremes[h.ticker] ? (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                              <span style={{ color: 'var(--color-green)', fontWeight: 600, fontSize: '0.85rem' }}>
-                                +{pnlExtremes[h.ticker].maxPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              <span style={{ color: pnlExtremes[h.ticker].maxPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 600, fontSize: '0.85rem' }}>
+                                {pnlExtremes[h.ticker].maxPnl >= 0 ? '+' : ''}{pnlExtremes[h.ticker].maxPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                               </span>
-                              <span style={{ fontSize: '0.65rem', color: 'var(--color-green)', opacity: 0.8 }}>
-                                +{pnlExtremes[h.ticker].maxPnlPct.toFixed(2)}%
+                              <span style={{ fontSize: '0.65rem', color: pnlExtremes[h.ticker].maxPnlPct >= 0 ? 'var(--color-green)' : 'var(--color-red)', opacity: 0.8 }}>
+                                {pnlExtremes[h.ticker].maxPnlPct >= 0 ? '+' : ''}{pnlExtremes[h.ticker].maxPnlPct.toFixed(2)}%
                               </span>
                               <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                {new Date(pnlExtremes[h.ticker].maxPnlDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}
+                                {new Date(pnlExtremes[h.ticker].maxPnlDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}
                               </span>
                             </div>
                           ) : (
@@ -1302,14 +1311,14 @@ function App() {
                         <td className="mono" style={{ textAlign: 'right' }}>
                           {pnlExtremes[h.ticker] ? (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                              <span style={{ color: 'var(--color-red)', fontWeight: 600, fontSize: '0.85rem' }}>
-                                {pnlExtremes[h.ticker].minPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              <span style={{ color: pnlExtremes[h.ticker].minPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 600, fontSize: '0.85rem' }}>
+                                {pnlExtremes[h.ticker].minPnl >= 0 ? '+' : ''}{pnlExtremes[h.ticker].minPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                               </span>
-                              <span style={{ fontSize: '0.65rem', color: 'var(--color-red)', opacity: 0.8 }}>
-                                {pnlExtremes[h.ticker].minPnlPct.toFixed(2)}%
+                              <span style={{ fontSize: '0.65rem', color: pnlExtremes[h.ticker].minPnlPct >= 0 ? 'var(--color-green)' : 'var(--color-red)', opacity: 0.8 }}>
+                                {pnlExtremes[h.ticker].minPnlPct >= 0 ? '+' : ''}{pnlExtremes[h.ticker].minPnlPct.toFixed(2)}%
                               </span>
                               <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                {new Date(pnlExtremes[h.ticker].minPnlDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}
+                                {new Date(pnlExtremes[h.ticker].minPnlDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}
                               </span>
                             </div>
                           ) : (
