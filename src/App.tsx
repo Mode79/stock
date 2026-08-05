@@ -553,7 +553,7 @@ function App() {
 
   const { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker, closedPositions } = calculatePortfolio();
 
-  // --- P&L EXTREMES CALCULATION ---
+  // --- P&L EXTREMES CALCULATION (Historical peaks/troughs up to yesterday) ---
   const computePnlExtremes = async () => {
     if (holdings.length === 0 || transactions.length === 0) return;
     const results: Record<string, { maxPnl: number; maxPnlDate: string; maxPnlPct: number; minPnl: number; minPnlDate: string; minPnlPct: number }> = {};
@@ -561,79 +561,87 @@ function App() {
 
     await Promise.all(holdings.map(async (h) => {
       try {
-        const livePnL = (h.shares * h.livePrice) - h.totalCost;
-        const livePnLPct = h.totalCost > 0 ? (livePnL / h.totalCost) * 100 : 0;
-
-        let maxPnl = livePnL;
-        let maxPnlDate = today;
-        let maxPnlPct = livePnLPct;
-        let minPnl = livePnL;
-        let minPnlDate = today;
-        let minPnlPct = livePnLPct;
-
         // Find the first buy date for this ticker
         const tickerTxs = transactions
           .filter(t => t.ticker === h.ticker && t.type === 'Buy')
           .sort((a, b) => a.date.localeCompare(b.date));
 
-        if (tickerTxs.length > 0) {
-          const firstBuyDate = tickerTxs[0].date;
-          const daysSinceBuy = Math.ceil((Date.now() - new Date(firstBuyDate).getTime()) / (1000 * 60 * 60 * 24));
-          const histRange = daysSinceBuy <= 30 ? '1m' : daysSinceBuy <= 90 ? '3m' : daysSinceBuy <= 180 ? '6m' : '1y';
+        if (tickerTxs.length === 0) return;
+        const firstBuyDate = tickerTxs[0].date;
 
-          try {
-            const res = await fetch(`/api/history?symbol=${h.ticker}&range=${histRange}`);
-            const history = await res.json();
+        const daysSinceBuy = Math.ceil((Date.now() - new Date(firstBuyDate).getTime()) / (1000 * 60 * 60 * 24));
+        const histRange = daysSinceBuy <= 30 ? '1m' : daysSinceBuy <= 90 ? '3m' : daysSinceBuy <= 180 ? '6m' : '1y';
 
-            if (Array.isArray(history) && history.length > 0) {
-              const relevantHistory = history.filter((p: any) => {
-                const pDate = p.date.split('T')[0];
-                return pDate >= firstBuyDate && pDate <= today;
-              });
+        let maxPnl = -Infinity;
+        let maxPnlDate = firstBuyDate;
+        let maxPnlPct = 0;
+        let minPnl = Infinity;
+        let minPnlDate = firstBuyDate;
+        let minPnlPct = 0;
 
-              const allTickerTxs = transactions
-                .filter(t => t.ticker === h.ticker)
-                .sort((a, b) => a.date.localeCompare(b.date));
+        try {
+          const res = await fetch(`/api/history?symbol=${h.ticker}&range=${histRange}`);
+          const history = await res.json();
 
-              relevantHistory.forEach((point: any) => {
-                const pDate = point.date.split('T')[0];
-                let shares = 0;
-                let totalCost = 0;
+          if (Array.isArray(history) && history.length > 0) {
+            // Filter history: only dates >= firstBuyDate AND strictly BEFORE today (< today)
+            const relevantHistory = history.filter((p: any) => {
+              const pDate = p.date.split('T')[0];
+              return pDate >= firstBuyDate && pDate < today;
+            });
 
-                allTickerTxs.forEach(tx => {
-                  if (tx.date > pDate) return;
-                  if (tx.type === 'Buy') {
-                    shares += tx.quantity!;
-                    totalCost += (tx.quantity! * tx.price) + (tx.fees || 0);
-                  } else if (tx.type === 'Sell') {
-                    const avgCost = shares > 0 ? totalCost / shares : 0;
-                    const costBasisSold = avgCost * tx.quantity!;
-                    shares -= tx.quantity!;
-                    totalCost -= costBasisSold;
-                  }
-                });
+            const allTickerTxs = transactions
+              .filter(t => t.ticker === h.ticker)
+              .sort((a, b) => a.date.localeCompare(b.date));
 
-                if (shares > 0 && totalCost > 0) {
-                  const currentValue = shares * point.close;
-                  const pnl = currentValue - totalCost;
-                  const pnlPct = (pnl / totalCost) * 100;
+            relevantHistory.forEach((point: any) => {
+              const pDate = point.date.split('T')[0];
+              let shares = 0;
+              let totalCost = 0;
 
-                  if (pnl > maxPnl) {
-                    maxPnl = pnl;
-                    maxPnlDate = pDate;
-                    maxPnlPct = pnlPct;
-                  }
-                  if (pnl < minPnl) {
-                    minPnl = pnl;
-                    minPnlDate = pDate;
-                    minPnlPct = pnlPct;
-                  }
+              allTickerTxs.forEach(tx => {
+                if (tx.date > pDate) return;
+                if (tx.type === 'Buy') {
+                  shares += tx.quantity!;
+                  totalCost += (tx.quantity! * tx.price) + (tx.fees || 0);
+                } else if (tx.type === 'Sell') {
+                  const avgCost = shares > 0 ? totalCost / shares : 0;
+                  const costBasisSold = avgCost * tx.quantity!;
+                  shares -= tx.quantity!;
+                  totalCost -= costBasisSold;
                 }
               });
-            }
-          } catch (fetchErr) {
-            // Live baseline remains
+
+              if (shares > 0 && totalCost > 0) {
+                const currentValue = shares * point.close;
+                const pnl = currentValue - totalCost;
+                const pnlPct = (pnl / totalCost) * 100;
+
+                if (pnl > maxPnl) {
+                  maxPnl = pnl;
+                  maxPnlDate = pDate;
+                  maxPnlPct = pnlPct;
+                }
+                if (pnl < minPnl) {
+                  minPnl = pnl;
+                  minPnlDate = pDate;
+                  minPnlPct = pnlPct;
+                }
+              }
+            });
           }
+        } catch (fetchErr) {
+          console.warn(`History fetch failed for ${h.ticker}`, fetchErr);
+        }
+
+        // If no history prior to today exists (e.g. bought today), default to 0 baseline on firstBuyDate
+        if (maxPnl === -Infinity || minPnl === Infinity) {
+          maxPnl = 0;
+          maxPnlDate = firstBuyDate;
+          maxPnlPct = 0;
+          minPnl = 0;
+          minPnlDate = firstBuyDate;
+          minPnlPct = 0;
         }
 
         results[h.ticker] = {
