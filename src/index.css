@@ -125,6 +125,35 @@ h1, h2, h3, h4, h5, h6 {
   flex-shrink: 0;
 }
 
+.top-cards-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1rem;
+  width: 100%;
+}
+
+.top-cards-row .card {
+  padding: 1.1rem 1rem;
+}
+
+.top-cards-row .card h2 {
+  font-size: 1.5rem !important;
+  white-space: nowrap;
+}
+
+.top-cards-row .card p {
+  font-size: 0.78rem !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1400px) {
+  .top-cards-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 .grid-3 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -139,7 +168,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 @media (max-width: 768px) {
-  .grid-2, .grid-3 {
+  .grid-2, .grid-3, .top-cards-row {
     grid-template-columns: 1fr;
   }
 }
