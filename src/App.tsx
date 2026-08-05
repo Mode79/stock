@@ -553,7 +553,7 @@ function App() {
 
   const { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker, closedPositions } = calculatePortfolio();
 
-  // --- P&L EXTREMES CALCULATION (Historical peaks/troughs up to yesterday) ---
+  // --- P&L EXTREMES CALCULATION (Historical peaks/troughs for current active position run) ---
   const computePnlExtremes = async () => {
     if (holdings.length === 0 || transactions.length === 0) return;
     const results: Record<string, { maxPnl: number; maxPnlDate: string; maxPnlPct: number; minPnl: number; minPnlDate: string; minPnlPct: number }> = {};
@@ -561,22 +561,47 @@ function App() {
 
     await Promise.all(holdings.map(async (h) => {
       try {
-        // Find the first buy date for this ticker
+        // Sort all transactions for this ticker by date ascending
         const tickerTxs = transactions
-          .filter(t => t.ticker === h.ticker && t.type === 'Buy')
+          .filter(t => t.ticker === h.ticker)
           .sort((a, b) => a.date.localeCompare(b.date));
 
         if (tickerTxs.length === 0) return;
-        const firstBuyDate = tickerTxs[0].date;
 
-        const daysSinceBuy = Math.ceil((Date.now() - new Date(firstBuyDate).getTime()) / (1000 * 60 * 60 * 24));
-        const histRange = daysSinceBuy <= 30 ? '1m' : daysSinceBuy <= 90 ? '3m' : daysSinceBuy <= 180 ? '6m' : '1y';
+        // Find the start date of the CURRENT active position run
+        let currentRunStartDate = '';
+        let runningShares = 0;
+
+        tickerTxs.forEach(tx => {
+          if (runningShares <= 0.0001 && tx.type === 'Buy') {
+            currentRunStartDate = tx.date;
+          }
+          if (tx.type === 'Buy') {
+            runningShares += tx.quantity || 0;
+          } else if (tx.type === 'Sell') {
+            runningShares -= tx.quantity || 0;
+            if (runningShares <= 0.0001) {
+              runningShares = 0;
+              currentRunStartDate = '';
+            }
+          }
+        });
+
+        // Fallback if no active run start date found
+        if (!currentRunStartDate) {
+          const buyTxs = tickerTxs.filter(t => t.type === 'Buy');
+          if (buyTxs.length > 0) currentRunStartDate = buyTxs[0].date;
+          else return;
+        }
+
+        const daysSinceBuy = Math.max(1, Math.ceil((Date.now() - new Date(currentRunStartDate).getTime()) / (1000 * 60 * 60 * 24)));
+        const histRange = daysSinceBuy <= 30 ? '1m' : daysSinceBuy <= 90 ? '3m' : daysSinceBuy <= 180 ? '6m' : daysSinceBuy <= 365 ? '1y' : '5y';
 
         let maxPnl = -Infinity;
-        let maxPnlDate = firstBuyDate;
+        let maxPnlDate = currentRunStartDate;
         let maxPnlPct = 0;
         let minPnl = Infinity;
-        let minPnlDate = firstBuyDate;
+        let minPnlDate = currentRunStartDate;
         let minPnlPct = 0;
 
         try {
@@ -584,22 +609,18 @@ function App() {
           const history = await res.json();
 
           if (Array.isArray(history) && history.length > 0) {
-            // Filter history: only dates >= firstBuyDate AND strictly BEFORE today (< today)
+            // Filter history: only dates >= currentRunStartDate AND strictly BEFORE today (< today)
             const relevantHistory = history.filter((p: any) => {
               const pDate = p.date.split('T')[0];
-              return pDate >= firstBuyDate && pDate < today;
+              return pDate >= currentRunStartDate && pDate < today;
             });
-
-            const allTickerTxs = transactions
-              .filter(t => t.ticker === h.ticker)
-              .sort((a, b) => a.date.localeCompare(b.date));
 
             relevantHistory.forEach((point: any) => {
               const pDate = point.date.split('T')[0];
               let shares = 0;
               let totalCost = 0;
 
-              allTickerTxs.forEach(tx => {
+              tickerTxs.forEach(tx => {
                 if (tx.date > pDate) return;
                 if (tx.type === 'Buy') {
                   shares += tx.quantity!;
@@ -634,13 +655,13 @@ function App() {
           console.warn(`History fetch failed for ${h.ticker}`, fetchErr);
         }
 
-        // If no history prior to today exists (e.g. bought today), default to 0 baseline on firstBuyDate
+        // If no history prior to today exists (e.g. bought today), default to 0 baseline on currentRunStartDate
         if (maxPnl === -Infinity || minPnl === Infinity) {
           maxPnl = 0;
-          maxPnlDate = firstBuyDate;
+          maxPnlDate = currentRunStartDate;
           maxPnlPct = 0;
           minPnl = 0;
-          minPnlDate = firstBuyDate;
+          minPnlDate = currentRunStartDate;
           minPnlPct = 0;
         }
 
