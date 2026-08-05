@@ -1233,16 +1233,10 @@ function App() {
 
 
 
-            <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <div className="card-header" style={{ padding: '1.5rem' }}>
-                <h3 className="card-title">Active Holdings</h3>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => exportToCSV(holdings, 'portfolio_holdings')}>
-                    Export CSV
-                  </button>
-                  {staleData && <div className="badge badge-yellow" style={{ fontSize: '0.7rem' }}><AlertTriangle size={12} /> Prices Stale</div>}
-
-                </div>
+            <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 0 }}>
+              <div className="card-header" style={{ padding: '0.85rem 1.25rem', marginBottom: 0, borderBottom: '1px solid var(--border-color)' }}>
+                <h3 className="card-title" style={{ fontSize: '1.05rem', margin: 0 }}>Active Holdings</h3>
+                {staleData && <div className="badge badge-yellow" style={{ fontSize: '0.7rem' }}><AlertTriangle size={12} /> Prices Stale</div>}
               </div>
               <div style={{ overflowX: 'auto' }}>
               <table className="data-table">
@@ -1330,8 +1324,14 @@ function App() {
                   })}
                 </tbody>
               </table>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 1.25rem', borderTop: '1px solid var(--border-color)', fontSize: '0.78rem', color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.1)' }}>
+                <span>Active Positions: <strong>{holdings.length}</strong></span>
+                <button className="btn-secondary" style={{ padding: '4px 12px', fontSize: '0.78rem' }} onClick={() => exportToCSV(holdings, 'portfolio_holdings')}>
+                  Export CSV
+                </button>
+              </div>
             </div>
-          </div>
           <UnrealizedPnLHistory transactions={transactions} />
 
           {/* Dividend Breakdown Panel */}
