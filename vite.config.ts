@@ -485,7 +485,8 @@ Return ONLY the JSON. No markdown outside the JSON.`;
 
               try {
                 let quotes = [];
-                const fullSymbol = (symbol.startsWith('^') || symbol.includes('.')) ? symbol : `${symbol}.CA`;
+                // Forex pairs (e.g. USDEGP=X) and indices/symbols with a dot must NOT get the .CA suffix.
+                const fullSymbol = (symbol.startsWith('^') || symbol.includes('.') || symbol.includes('=')) ? symbol : `${symbol}.CA`;
                 if (range === '1d' || range === '1w') {
                   try {
                     const chartData = await yf.chart(fullSymbol, { range: range === '1d' ? '1d' : '5d', interval: range === '1d' ? '2m' : '15m' });
@@ -534,15 +535,23 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                   else period1 = new Date(1970, 0, 1);
 
                   try {
-                    const histData = await yf.historical(fullSymbol, { period1, period2: now, interval: (range === '5y' || range === 'max') ? '1mo' : '1d' });
-                    quotes = histData.map((q: any) => ({ 
-                      date: q.date, 
-                      open: q.open,
-                      high: q.high,
-                      low: q.low,
-                      close: q.close || q.adjclose,
-                      volume: q.volume
-                    }));
+                    // Forex pairs return null gaps via historical(); chart() is reliable for them.
+                    if (fullSymbol.includes('=')) {
+                      const chartData = await yf.chart(fullSymbol, { period1, period2: now, interval: '1d' });
+                      quotes = (chartData.quotes || [])
+                        .filter((q: any) => q && (q.close != null || q.adjclose != null))
+                        .map((q: any) => ({ date: q.date, open: q.open, high: q.high, low: q.low, close: q.close || q.adjclose, volume: q.volume || 0 }));
+                    } else {
+                      const histData = await yf.historical(fullSymbol, { period1, period2: now, interval: (range === '5y' || range === 'max') ? '1mo' : '1d' });
+                      quotes = histData.map((q: any) => ({
+                        date: q.date,
+                        open: q.open,
+                        high: q.high,
+                        low: q.low,
+                        close: q.close || q.adjclose,
+                        volume: q.volume
+                      }));
+                    }
                   } catch (hErr: any) {
                     // Fallback for EGX30 index if primary ticker fails
                     if (fullSymbol === '^CASE30' || fullSymbol === '^EGX30' || fullSymbol === 'CASE.CA' || fullSymbol === 'EGX30.CA') {

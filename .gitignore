@@ -37,3 +37,6 @@ scratch/
 
 # Claude assistant local settings
 .claude/
+
+# Auto Claude data directory
+.auto-claude/

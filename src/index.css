@@ -379,3 +379,15 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--text-muted);
   font-size: 0.7rem;
 }
+
+/* Clickable Stock Rows */
+.clickable-row {
+  cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.clickable-row:hover {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+  box-shadow: inset 3px 0 0 var(--color-blue);
+}
+

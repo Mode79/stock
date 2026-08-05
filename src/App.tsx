@@ -6,7 +6,8 @@ import {
 import { 
   ArrowUpRight, ArrowDownRight, RefreshCw, AlertTriangle, 
   Wallet, DollarSign, Activity, Clock, Plus, PlusCircle, Trash2, X, Search, TrendingUp,
-  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell, Pencil, VolumeX, Volume2
+  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell, Pencil, VolumeX, Volume2,
+  Coins
 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line } from 'recharts';
 import { InfoTooltip } from './components/InfoTooltip';
@@ -15,6 +16,10 @@ import { calculateRecommendation } from './utils/recommendationEngine';
 import { buildTechnicalProfile, resampleWeekly } from './utils/technicalAnalysis';
 import { parseFundamentals, scoreFundamentals } from './utils/fundamentals';
 import { backtestBullishSetup, returnCorrelation } from './utils/backtest';
+import { WealthCenter } from './components/WealthCenter';
+import { BenchmarkCenter } from './components/BenchmarkCenter';
+import { StockDetailModal } from './components/StockDetailModal';
+import { COMPANY_META } from './types';
 
 // --- TYPES ---
 type TransactionType = 'Buy' | 'Sell' | 'Deposit' | 'Withdraw' | 'Dividend';
@@ -48,14 +53,14 @@ const getLogoUrl = (logoid: string | null | undefined) => {
 
 // Initial state
 const SEED_TRANSACTIONS: Transaction[] = [
-  { id: 'dep1', date: '2026-04-01', type: 'Deposit', price: 150000, broker: 'System', fees: 0 },
-  { id: 's1', date: '2026-04-28', type: 'Buy', ticker: 'MICH', quantity: 288, price: 35.48, broker: 'Thndr', fees: 17.77 },
-  { id: 's2', date: '2026-04-28', type: 'Buy', ticker: 'ORWE', quantity: 448, price: 22.90, broker: 'Thndr', fees: 16.81 },
-  { id: 's3', date: '2026-04-28', type: 'Buy', ticker: 'SUGR', quantity: 210, price: 49.49, broker: 'Thndr', fees: 15.99 },
-  { id: 's4', date: '2026-04-28', type: 'Buy', ticker: 'MPCI', quantity: 58, price: 172.99, broker: 'Thndr', fees: 15.53 },
-  { id: 's5', date: '2026-04-28', type: 'Buy', ticker: 'OLFI', quantity: 458, price: 22.28, broker: 'Thndr', fees: 15.75 },
-  { id: 's6', date: '2026-04-28', type: 'Buy', ticker: 'AMOC', quantity: 1261, price: 8.40, broker: 'Thndr', fees: 16.24 },
-  { id: 's7', date: '2026-04-28', type: 'Buy', ticker: 'SWDY', quantity: 121, price: 87.00, broker: 'Thndr', fees: 16.16 },
+  { id: 'dep1', date: '2026-04-01', type: 'Deposit', price: 150000, broker: 'Thunder', fees: 0 },
+  { id: 's1', date: '2026-04-28', type: 'Buy', ticker: 'MICH', quantity: 288, price: 35.48, broker: 'Thunder', fees: 17.77 },
+  { id: 's2', date: '2026-04-28', type: 'Buy', ticker: 'ORWE', quantity: 448, price: 22.90, broker: 'Thunder', fees: 16.81 },
+  { id: 's3', date: '2026-04-28', type: 'Buy', ticker: 'SUGR', quantity: 210, price: 49.49, broker: 'Thunder', fees: 15.99 },
+  { id: 's4', date: '2026-04-28', type: 'Buy', ticker: 'MPCI', quantity: 58, price: 172.99, broker: 'Thunder', fees: 15.53 },
+  { id: 's5', date: '2026-04-28', type: 'Buy', ticker: 'OLFI', quantity: 458, price: 22.28, broker: 'Thunder', fees: 15.75 },
+  { id: 's6', date: '2026-04-28', type: 'Buy', ticker: 'AMOC', quantity: 1261, price: 8.40, broker: 'Thunder', fees: 16.24 },
+  { id: 's7', date: '2026-04-28', type: 'Buy', ticker: 'SWDY', quantity: 121, price: 87.00, broker: 'Thunder', fees: 16.16 },
   { id: 's8', date: '2026-05-03', type: 'Buy', ticker: 'OLFI', quantity: 362, price: 22.15, broker: 'Telda', fees: 4.00 },
   { id: 's9', date: '2026-05-03', type: 'Buy', ticker: 'MPCI', quantity: 46, price: 172.41, broker: 'Telda', fees: 2.98 },
   { id: 's10', date: '2026-05-03', type: 'Buy', ticker: 'MICH', quantity: 228, price: 35.80, broker: 'Telda', fees: 3.05 },
@@ -258,7 +263,8 @@ function App() {
   const athAlertAcknowledgedRef = useRef<Set<string>>(new Set());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
-  const [activeTab, setActiveTab] = useState<'portfolio' | 'history' | 'health' | 'market' | 'simulator' | 'holdingHistory'>('portfolio');
+  const [selectedStockTicker, setSelectedStockTicker] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'portfolio' | 'history' | 'health' | 'market' | 'simulator' | 'holdingHistory' | 'wealth' | 'benchmarks'>('portfolio');
   const [isLearningOpen, setIsLearningOpen] = useState(false);
   const [historyStock, setHistoryStock] = useState<string | null>(null);
   const [analysisStock, setAnalysisStock] = useState<Holding | null>(null);
@@ -271,7 +277,10 @@ function App() {
     geminiKey: '',
     openaiKey: '',
     enableLogging: true,
+    goldKarat: 21,
+    goldPrice21k: 6502.73,
   });
+  const [liveGoldPrice21k, setLiveGoldPrice21k] = useState<number | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -408,6 +417,22 @@ function App() {
     let dividendsCollected = 0;
     const dividendsByTicker: Record<string, number> = {};
     const holdingsMap: Record<string, { shares: number; totalCost: number }> = {};
+    // Per-ticker realized trade ledger (survives even after a position is fully exited)
+    const realizedMap: Record<string, {
+      buyShares: number; buyCost: number; grossBuy: number;
+      soldShares: number; grossProceeds: number; netProceeds: number;
+      costBasisSold: number; realizedPnL: number; fees: number;
+      firstBuyDate: string; lastSellDate: string;
+    }> = {};
+    const ensureRealized = (ticker: string) => {
+      if (!realizedMap[ticker]) realizedMap[ticker] = {
+        buyShares: 0, buyCost: 0, grossBuy: 0,
+        soldShares: 0, grossProceeds: 0, netProceeds: 0,
+        costBasisSold: 0, realizedPnL: 0, fees: 0,
+        firstBuyDate: '', lastSellDate: ''
+      };
+      return realizedMap[ticker];
+    };
 
     const sortedTx = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -434,6 +459,13 @@ function App() {
             if (!holdingsMap[tx.ticker]) holdingsMap[tx.ticker] = { shares: 0, totalCost: 0 };
             holdingsMap[tx.ticker].shares += tx.quantity;
             holdingsMap[tx.ticker].totalCost += cost;
+
+            const r = ensureRealized(tx.ticker);
+            r.buyShares += tx.quantity;
+            r.buyCost += cost;
+            r.grossBuy += tx.quantity * tx.price;
+            r.fees += tx.fees || 0;
+            if (!r.firstBuyDate || tx.date < r.firstBuyDate) r.firstBuyDate = tx.date;
           }
           break;
         case 'Sell':
@@ -447,6 +479,15 @@ function App() {
               realizedPnL += (proceeds - costBasisOfSold);
               h.shares -= tx.quantity;
               h.totalCost -= costBasisOfSold;
+
+              const r = ensureRealized(tx.ticker);
+              r.soldShares += tx.quantity;
+              r.grossProceeds += tx.quantity * tx.price;
+              r.netProceeds += proceeds;
+              r.costBasisSold += costBasisOfSold;
+              r.realizedPnL += (proceeds - costBasisOfSold);
+              r.fees += tx.fees || 0;
+              if (!r.lastSellDate || tx.date > r.lastSellDate) r.lastSellDate = tx.date;
             }
           }
           break;
@@ -469,10 +510,48 @@ function App() {
         };
       });
 
-    return { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker };
+    // Build closed / partially-exited positions from the realized ledger.
+    // Any ticker that has ever been sold gets a record, even if it no longer appears in holdings.
+    const closedPositions = Object.entries(realizedMap)
+      .filter(([_, r]) => r.soldShares > 0)
+      .map(([ticker, r]) => {
+        const meta = marketData[ticker] || {};
+        const openShares = holdingsMap[ticker]?.shares || 0;
+        const isFullyClosed = openShares <= 0.0001;
+        const dividends = dividendsByTicker[ticker] || 0;
+        const avgBuyPrice = r.buyShares > 0 ? r.grossBuy / r.buyShares : 0;
+        const avgSellPrice = r.soldShares > 0 ? r.grossProceeds / r.soldShares : 0;
+        const realizedPnLPct = r.costBasisSold > 0 ? (r.realizedPnL / r.costBasisSold) * 100 : 0;
+        const holdingDays = (r.firstBuyDate && r.lastSellDate)
+          ? Math.max(0, Math.round((new Date(r.lastSellDate).getTime() - new Date(r.firstBuyDate).getTime()) / 86400000))
+          : 0;
+        return {
+          ticker,
+          company: meta.name || ticker,
+          sector: meta.sector || '—',
+          soldShares: r.soldShares,
+          avgBuyPrice,
+          avgSellPrice,
+          costBasisSold: r.costBasisSold,
+          netProceeds: r.netProceeds,
+          realizedPnL: r.realizedPnL,
+          realizedPnLPct,
+          dividends,
+          totalReturn: r.realizedPnL + dividends,
+          fees: r.fees,
+          firstBuyDate: r.firstBuyDate,
+          lastSellDate: r.lastSellDate,
+          holdingDays,
+          isFullyClosed,
+          openShares
+        };
+      })
+      .sort((a, b) => new Date(b.lastSellDate).getTime() - new Date(a.lastSellDate).getTime());
+
+    return { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker, closedPositions };
   };
 
-  const { holdings, walletBalance, realizedPnL, dividendsCollected, dividendsByTicker } = calculatePortfolio();
+  const { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker, closedPositions } = calculatePortfolio();
 
   // --- P&L EXTREMES CALCULATION ---
   const computePnlExtremes = async () => {
@@ -710,6 +789,25 @@ function App() {
   const fetchLivePrices = async () => {
     try {
       setIsUpdating(true);
+      // Also fetch live Gold & FX to compute 24k Gold per gram in EGP dynamically
+      try {
+        const [goldRes, fxRes] = await Promise.all([
+          fetch('/api/history?symbol=GC=F&range=1d').then(r => r.json()).catch(() => null),
+          fetch('/api/history?symbol=USDEGP=X&range=1d').then(r => r.json()).catch(() => null)
+        ]);
+        if (Array.isArray(goldRes) && goldRes.length > 0 && Array.isArray(fxRes) && fxRes.length > 0) {
+          const gc = goldRes[goldRes.length - 1].close;
+          const fx = fxRes[fxRes.length - 1].close;
+          if (gc && fx) {
+            // 21K gold = 24K price * (21/24)
+            const perGram21kEGP = Math.round((((gc * fx) / 31.1034768) * (21 / 24)) * 100) / 100;
+            setLiveGoldPrice21k(perGram21kEGP);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch live gold price:', e);
+      }
+
       const tickers = Array.from(new Set([
         ...(transactions || []).filter(t => t.ticker).map(t => `${t.ticker!.trim().toUpperCase()}.CA`),
         ...(watchlist || []).map(t => `${t.trim().toUpperCase()}.CA`)
@@ -877,13 +975,6 @@ function App() {
   const totalPnL = totalMarketValue - totalInvested;
   const totalPnLPercent = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
 
-  // --- TOP-LEVEL HEALTH LOGIC ---
-  const uniqueSectors = [...new Set(holdings.map(h => h.sector))].length;
-  const divScore = Math.min(100, (uniqueSectors / 5) * 100);
-  const perfScore = totalPnLPercent > 0 ? 100 : 70;
-  const healthScore = Math.round((divScore * 0.4) + (perfScore * 0.4) + 20);
-  const portfolioGrade = healthScore > 90 ? 'A+' : healthScore > 80 ? 'A' : healthScore > 70 ? 'B' : 'C';
-
   return (
     <div className="app-container">
       <header className="header">
@@ -1019,12 +1110,50 @@ function App() {
         >
           <Target size={16} /> Simulation Lab
         </button>
+        <button
+          onClick={() => setActiveTab('wealth')}
+          style={{
+            padding: '1rem 0.5rem',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'wealth' ? '2px solid var(--color-green)' : '2px solid transparent',
+            color: activeTab === 'wealth' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: '0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          <Sparkles size={16} className="text-green" /> Wealth Center
+        </button>
+        <button
+          onClick={() => setActiveTab('benchmarks')}
+          style={{
+            padding: '1rem 0.5rem',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'benchmarks' ? '2px solid var(--color-yellow)' : '2px solid transparent',
+            color: activeTab === 'benchmarks' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: '0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          <Coins size={16} className="text-yellow" /> Gold & USD
+        </button>
       </div>
 
       <main className="main-content">
-        {activeTab === 'market' && <MarketIntelligence watchlist={watchlist} setWatchlist={setWatchlist} marketData={marketData} analyticsData={analyticsData} setAnalysisStock={setAnalysisStock} shariaTickers={SHARIA_TICKERS} />}
+        {activeTab === 'wealth' && <WealthCenter holdings={holdings} transactions={transactions} walletBalance={walletBalance} />}
+        {activeTab === 'benchmarks' && <BenchmarkCenter holdings={holdings} transactions={transactions} walletBalance={walletBalance} />}
+        {activeTab === 'market' && <MarketIntelligence watchlist={watchlist} setWatchlist={setWatchlist} marketData={marketData} analyticsData={analyticsData} setAnalysisStock={setAnalysisStock} shariaTickers={SHARIA_TICKERS} onSelectStock={setSelectedStockTicker} />}
         {activeTab === 'simulator' && <StrategySimulator holdings={holdings} analyticsData={analyticsData} totalMarketValue={totalMarketValue} />}
-        {activeTab === 'health' && <PerformanceDashboard transactions={transactions} holdings={holdings} analyticsData={analyticsData} portfolioGrade={portfolioGrade} walletBalance={walletBalance} marketData={marketData} />}
+        {activeTab === 'health' && <PerformanceDashboard transactions={transactions} holdings={holdings} analyticsData={analyticsData} walletBalance={walletBalance} marketData={marketData} />}
         {activeTab === 'holdingHistory' && <HoldingHistory holdings={holdings} analyticsData={analyticsData} transactions={transactions} />}
 
         {activeTab === 'portfolio' && (
@@ -1040,10 +1169,22 @@ function App() {
                 <h2 className="mono" style={{ fontSize: '2rem', color: totalPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{totalPnL >= 0 ? '+' : ''}{totalPnL.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
                 <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{totalPnLPercent.toFixed(2)}% Performance</p>
               </div>
+              <div className="card" style={{ borderLeft: `4px solid ${realizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)'}` }}>
+                <div className="card-header">
+                  <span className="card-title" style={{ color: realizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>Realized P&L</span>
+                  {realizedPnL >= 0 ? <TrendingUp size={20} className="text-green" /> : <ArrowDownRight size={20} className="text-red" />}
+                </div>
+                <h2 className="mono" style={{ fontSize: '2rem', color: realizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
+                  {realizedPnL >= 0 ? '+' : ''}EGP {realizedPnL.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </h2>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                  {closedPositions.length > 0 ? `${closedPositions.length} sold position${closedPositions.length > 1 ? 's' : ''}` : 'No closed sales'}
+                </p>
+              </div>
               <div className="card" style={{ borderLeft: '4px solid var(--color-yellow)' }}>
-                <div className="card-header"><span className="card-title text-yellow">Wallet</span><DollarSign size={20} className="text-yellow" /></div>
+                <div className="card-header"><span className="card-title text-yellow">Wallet Balance</span><DollarSign size={20} className="text-yellow" /></div>
                 <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {walletBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
-                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Realized: EGP {realizedPnL.toLocaleString()}</p>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Available Liquid Cash</p>
               </div>
               <div className="card" style={{ borderLeft: '4px solid var(--color-green)', background: 'linear-gradient(135deg, rgba(16,185,129,0.07) 0%, transparent 100%)' }}>
                 <div className="card-header"><span className="card-title text-green">Dividends</span><ArrowUpRight size={20} className="text-green" /></div>
@@ -1054,14 +1195,29 @@ function App() {
                     : 'No dividends recorded'}
                 </p>
               </div>
-              <div className="card" style={{ borderLeft: '4px solid var(--color-blue)', background: 'linear-gradient(135deg, rgba(59,130,246,0.05) 0%, transparent 100%)' }}>
-                <div className="card-header"><span className="card-title text-blue">Tax & Zakat</span><ShieldCheck size={20} className="text-blue" /></div>
-                <h2 className="mono" style={{ fontSize: '2rem' }}>
-                  EGP {((totalMarketValue + walletBalance) >= (85 * 3800) ? Math.round((totalMarketValue + walletBalance) * 0.025) : 0).toLocaleString()}
-                </h2>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                  {(totalMarketValue + walletBalance) >= (85 * 3800) ? 'Est. Zakat (2.5%) + Cap Gains' : 'Below Nisab Threshold'}
-                </p>
+              <div className="card" style={{ borderLeft: `4px solid ${((totalPnL || 0) + (realizedPnL || 0) + (dividendsCollected || 0)) >= 0 ? 'var(--color-green)' : 'var(--color-red)'}`, background: 'gradient(135deg, rgba(59,130,246,0.05) 0%, transparent 100%)' }}>
+                {(() => {
+                  const uPnL = totalPnL || 0;
+                  const rPnL = realizedPnL || 0;
+                  const divCol = dividendsCollected || 0;
+                  const combinedTotalReturn = uPnL + rPnL + divCol;
+                  const baseCap = (totalInvested && totalInvested > 0) ? totalInvested : (totalDeposited || 0);
+                  const totalReturnPct = baseCap > 0 ? (combinedTotalReturn / baseCap) * 100 : 0;
+                  return (
+                    <>
+                      <div className="card-header">
+                        <span className="card-title" style={{ color: combinedTotalReturn >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>Total Return</span>
+                        {combinedTotalReturn >= 0 ? <ArrowUpRight size={20} className="text-green" /> : <ArrowDownRight size={20} className="text-red" />}
+                      </div>
+                      <h2 className="mono" style={{ fontSize: '2rem', color: combinedTotalReturn >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
+                        {combinedTotalReturn >= 0 ? '+' : ''}EGP {combinedTotalReturn.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </h2>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        {totalReturnPct >= 0 ? '+' : ''}{totalReturnPct.toFixed(2)}% Overall (Unrealized + Realized + Dividends)
+                      </p>
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
@@ -1089,7 +1245,8 @@ function App() {
                     <th style={{ textAlign: 'right' }}>Purchased Value</th>
                     <th onClick={() => requestSort('livePrice')} style={{ cursor: 'pointer', textAlign: 'right' }}>Live Price <SortIndicator column="livePrice" /></th>
                     <th style={{ textAlign: 'right' }}>Market Value</th>
-                    <th style={{ textAlign: 'right' }}>P&L</th>
+                    <th style={{ textAlign: 'right' }}>Unrealized P&L</th>
+                    <th style={{ textAlign: 'right' }}>Realized P&L</th>
                     <th style={{ textAlign: 'right' }}>Max P&L ▲</th>
                     <th style={{ textAlign: 'right' }}>Min P&L ▼</th>
                   </tr>
@@ -1100,8 +1257,16 @@ function App() {
                     const pnl = value - h.totalCost;
                     const pnlPct = h.totalCost > 0 ? (pnl / h.totalCost) * 100 : 0;
                     const isNewPeak = pnlExtremes[h.ticker] && pnl > pnlExtremes[h.ticker].maxPnl;
+                    const closedInfo = closedPositions.find(p => p.ticker === h.ticker);
+                    const stockRealized = closedInfo ? closedInfo.realizedPnL : 0;
                     return (
-                      <tr key={h.ticker} style={{ background: isNewPeak ? 'rgba(250, 204, 21, 0.08)' : pnl >= 0 ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)' }}>
+                      <tr 
+                        key={h.ticker} 
+                        className="clickable-row"
+                        onClick={() => setSelectedStockTicker(h.ticker)}
+                        title="Click to view detailed buying/selling history, dividends & stock info"
+                        style={{ background: isNewPeak ? 'rgba(250, 204, 21, 0.08)' : pnl >= 0 ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)' }}
+                      >
                         <td style={{ fontWeight: 700 }}>{h.ticker}</td>
                         <td style={{ color: 'var(--text-secondary)' }}>{h.company}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{h.shares}</td>
@@ -1112,6 +1277,9 @@ function App() {
                         <td className="mono" style={{ textAlign: 'right', color: isNewPeak ? '#facc15' : pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
                           <div>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
                           <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>{pnl >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%</div>
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right', color: stockRealized > 0 ? 'var(--color-green)' : stockRealized < 0 ? 'var(--color-red)' : 'var(--text-secondary)' }}>
+                          {stockRealized !== 0 ? `${stockRealized >= 0 ? '+' : ''}${stockRealized.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>
                           {pnlExtremes[h.ticker] ? (
@@ -1190,7 +1358,12 @@ function App() {
                           ? ((amount / dividendsCollected) * 100).toFixed(1)
                           : '0.0';
                         return (
-                          <tr key={ticker}>
+                          <tr 
+                            key={ticker} 
+                            className="clickable-row" 
+                            onClick={() => setSelectedStockTicker(ticker)}
+                            title="Click to view stock history & dividends"
+                          >
                             <td style={{ fontWeight: 700 }}>{ticker}</td>
                             <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
                               {holding?.company || '—'}
@@ -1217,6 +1390,86 @@ function App() {
               </div>
               <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                 Yield on Cost = Total dividends received ÷ Cost basis of that holding
+              </div>
+            </div>
+          )}
+
+          {/* Closed Positions (Realized) Panel */}
+          {closedPositions.length > 0 && (
+            <div className="card" style={{ marginTop: '1.5rem' }}>
+              <div className="card-header" style={{ padding: '1.5rem' }}>
+                <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <BookOpen size={18} className="text-blue" /> Closed Positions <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-secondary)' }}>(Realized)</span>
+                </h3>
+                {(() => {
+                  const totalRealized = closedPositions.reduce((s, p) => s + p.realizedPnL, 0);
+                  return (
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      Net realized:{' '}
+                      <strong style={{ color: totalRealized >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
+                        {totalRealized >= 0 ? '+' : ''}EGP {totalRealized.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </strong>
+                    </span>
+                  );
+                })()}
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Ticker</th>
+                      <th>Company</th>
+                      <th style={{ textAlign: 'center' }}>Status</th>
+                      <th style={{ textAlign: 'right' }}>Shares Sold</th>
+                      <th style={{ textAlign: 'right' }}>Avg Buy</th>
+                      <th style={{ textAlign: 'right' }}>Avg Sell</th>
+                      <th style={{ textAlign: 'right' }}>Cost Basis</th>
+                      <th style={{ textAlign: 'right' }}>Proceeds</th>
+                      <th style={{ textAlign: 'right' }}>Realized P&L</th>
+                      <th style={{ textAlign: 'right' }}>Dividends</th>
+                      <th style={{ textAlign: 'right' }}>Total Return</th>
+                      <th style={{ textAlign: 'right' }}>Held</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {closedPositions.map(p => (
+                      <tr 
+                        key={p.ticker} 
+                        className="clickable-row"
+                        onClick={() => setSelectedStockTicker(p.ticker)}
+                        title="Click to view closed position details, buy/sell history & dividends"
+                        style={{ background: p.realizedPnL >= 0 ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)' }}
+                      >
+                        <td style={{ fontWeight: 700 }}>{p.ticker}</td>
+                        <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{p.company}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          {p.isFullyClosed
+                            ? <span className="badge badge-blue" style={{ fontSize: '0.65rem' }}>Closed</span>
+                            : <span className="badge badge-yellow" style={{ fontSize: '0.65rem' }}>Partial · {p.openShares} left</span>}
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{p.soldShares.toLocaleString()}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{p.avgBuyPrice.toFixed(2)}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{p.avgSellPrice.toFixed(2)}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{p.costBasisSold.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{p.netProceeds.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: p.realizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 600 }}>
+                          <div>{p.realizedPnL >= 0 ? '+' : ''}{p.realizedPnL.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                          <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>{p.realizedPnLPct >= 0 ? '+' : ''}{p.realizedPnLPct.toFixed(2)}%</div>
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right', color: p.dividends > 0 ? 'var(--color-green)' : 'var(--text-secondary)' }}>
+                          {p.dividends > 0 ? `+${p.dividends.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right', color: p.totalReturn >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 700 }}>
+                          {p.totalReturn >= 0 ? '+' : ''}{p.totalReturn.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{p.holdingDays}d</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                Realized P&L = Net sale proceeds − average cost basis of the shares sold (fees included). Total Return also folds in dividends collected while the position was held.
               </div>
             </div>
           )}
@@ -1264,7 +1517,13 @@ function App() {
                   }).map(tx => (
                     <tr key={tx.id}>
                       <td style={{ whiteSpace: 'nowrap' }}>{tx.date}</td>
-                      <td style={{ fontWeight: 700 }}>{tx.ticker || '-'}</td>
+                      <td 
+                        style={{ fontWeight: 700, cursor: tx.ticker ? 'pointer' : 'default', color: tx.ticker ? 'var(--color-blue)' : 'inherit' }}
+                        onClick={() => tx.ticker && setSelectedStockTicker(tx.ticker)}
+                        title={tx.ticker ? "Click to view stock history & details" : ""}
+                      >
+                        {tx.ticker || '-'}
+                      </td>
                       <td>
                         <span className={`badge ${
                           tx.type === 'Buy' ? 'badge-blue' : 
@@ -1273,7 +1532,7 @@ function App() {
                           tx.type === 'Withdraw' ? 'badge-yellow' : 'badge-purple'
                         }`}>{tx.type}</span>
                       </td>
-                      <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{tx.broker || 'Thndr'}</td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{tx.broker || 'Thunder'}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{tx.quantity || '-'}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{tx.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                       <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{tx.fees || 0}</td>
@@ -1392,6 +1651,22 @@ function App() {
                   </select>
                 )}
               </div>
+              <div>
+                <label className="text-muted" style={{ display: 'block', marginBottom: '0.5rem' }}>Gold 21K Price (EGP / gram)</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  className="input-field" 
+                  value={aiSettings.goldPrice21k ?? 6502.73} 
+                  onFocus={e => e.target.select()}
+                  onChange={e => saveSettings({...aiSettings, goldPrice21k: parseFloat(e.target.value) || 6502.73})}
+                  placeholder="6502.73"
+                  style={{ width: '100%' }}
+                />
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.35rem' }}>
+                  Nisab Threshold (85g of 21K Gold): <strong>EGP {Math.round(85 * (aiSettings.goldPrice21k ?? 6502.73)).toLocaleString()}</strong>
+                </p>
+              </div>
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <button className="btn-primary" style={{ flex: 1 }} onClick={() => setIsSettingsOpen(false)}>Close Settings</button>
                 <button className="btn-secondary" style={{ color: 'var(--color-red)', borderColor: 'var(--color-red)' }} onClick={async () => {
@@ -1416,6 +1691,35 @@ function App() {
             await saveTransaction({ ...tx, id });
             setIsModalOpen(false);
             setEditingTransaction(null);
+          }}
+        />
+      )}
+
+      {selectedStockTicker && (
+        <StockDetailModal
+          ticker={selectedStockTicker}
+          transactions={transactions}
+          holdings={holdings}
+          closedPositions={closedPositions}
+          dividendsByTicker={dividendsByTicker}
+          marketData={marketData}
+          pnlExtremes={pnlExtremes}
+          onClose={() => setSelectedStockTicker(null)}
+          onDeleteTransaction={deleteTransaction}
+          onAddTransactionForTicker={(t) => {
+            setEditingTransaction({
+              id: '',
+              date: new Date().toISOString().split('T')[0],
+              type: 'Buy',
+              ticker: t,
+              price: 0,
+              broker: 'Thndr',
+              fees: 0
+            });
+            setIsModalOpen(true);
+          }}
+          onOpenAIAnalysis={(h) => {
+            setAnalysisStock(h);
           }}
         />
       )}
@@ -1511,12 +1815,21 @@ function TransactionForm({ onClose, onSave, initialData }: { onClose: () => void
   const [formData, setFormData] = useState({
     date: initialData?.date ?? new Date().toISOString().split('T')[0],
     type: (initialData?.type ?? 'Buy') as TransactionType,
-    ticker: initialData?.ticker ?? '',
-    quantity: initialData?.quantity ?? 0,
-    price: initialData?.price ?? 0,
-    broker: initialData?.broker ?? 'Thndr',
-    fees: initialData?.fees ?? 0
+    ticker: initialData?.ticker ?? 'SWDY',
+    quantity: (initialData?.quantity !== undefined && initialData?.quantity !== 0) ? String(initialData.quantity) : '',
+    price: (initialData?.price !== undefined && initialData?.price !== 0) ? String(initialData.price) : '',
+    broker: initialData?.broker ?? 'Thunder',
+    fees: (initialData?.fees !== undefined && initialData?.fees !== 0) ? String(initialData.fees) : '',
   });
+
+  const handleSave = () => {
+    onSave({
+      ...formData,
+      quantity: formData.quantity === '' ? 0 : Number(formData.quantity),
+      price: formData.price === '' ? 0 : Number(formData.price),
+      fees: formData.fees === '' ? 0 : Number(formData.fees),
+    });
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -1551,48 +1864,77 @@ function TransactionForm({ onClose, onSave, initialData }: { onClose: () => void
                 <label className="text-muted" style={{ fontSize: '0.8rem' }}>
                   {formData.type === 'Dividend' ? 'Source Symbol (Stock)' : 'Ticker'}
                 </label>
-                <input
-                  type="text"
+                <select
                   className="input-field"
-                  placeholder="e.g. SWDY"
-                  value={formData.ticker}
-                  onChange={e => setFormData({...formData, ticker: e.target.value.toUpperCase()})}
-                />
+                  value={formData.ticker || 'SWDY'}
+                  onChange={e => setFormData({...formData, ticker: e.target.value})}
+                  style={{ width: '100%', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+                >
+                  {formData.ticker && !COMPANY_META[formData.ticker] && (
+                    <option value={formData.ticker}>{formData.ticker}</option>
+                  )}
+                  {Object.keys(COMPANY_META).sort().map(t => (
+                    <option key={t} value={t}>
+                      {t} - {COMPANY_META[t].company}
+                    </option>
+                  ))}
+                </select>
               </div>
               {['Buy', 'Sell'].includes(formData.type) && (
                 <div>
                   <label className="text-muted" style={{ fontSize: '0.8rem' }}>Quantity</label>
-                  <input type="number" className="input-field" value={formData.quantity} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} />
+                  <input 
+                    type="number" 
+                    step="any"
+                    className="input-field" 
+                    placeholder="0"
+                    value={formData.quantity} 
+                    onFocus={e => e.target.select()}
+                    onChange={e => setFormData({...formData, quantity: e.target.value})} 
+                  />
                 </div>
               )}
             </div>
           )}
           <div>
             <label className="text-muted" style={{ fontSize: '0.8rem' }}>{['Deposit', 'Withdraw', 'Dividend'].includes(formData.type) ? 'Amount (EGP)' : 'Price per Share (EGP)'}</label>
-            <input type="number" className="input-field" value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} />
+            <input 
+              type="number" 
+              step="any"
+              className="input-field" 
+              placeholder="0.00"
+              value={formData.price} 
+              onFocus={e => e.target.select()}
+              onChange={e => setFormData({...formData, price: e.target.value})} 
+            />
           </div>
           <div className="grid-2" style={{ gap: '1rem' }}>
             <div className="form-group">
-              <label>Broker Name</label>
-              <input 
-                type="text" 
+              <label className="text-muted" style={{ fontSize: '0.8rem' }}>Broker Name</label>
+              <select 
                 className="input-field" 
-                value={formData.broker} 
-                onChange={e => setFormData({ ...formData, broker: e.target.value })} 
-                placeholder="e.g. Thndr, Hermes"
-              />
+                value={formData.broker === 'Telda' ? 'Telda' : 'Thunder'} 
+                onChange={e => setFormData({ ...formData, broker: e.target.value })}
+                style={{ width: '100%', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+              >
+                <option value="Thunder">Thunder</option>
+                <option value="Telda">Telda</option>
+              </select>
             </div>
             <div className="form-group">
-              <label>Fees (EGP)</label>
+              <label className="text-muted" style={{ fontSize: '0.8rem' }}>Fees (EGP)</label>
               <input 
                 type="number" 
+                step="any"
                 className="input-field" 
+                placeholder="0"
                 value={formData.fees} 
-                onChange={e => setFormData({ ...formData, fees: Number(e.target.value) })} 
+                onFocus={e => e.target.select()}
+                onChange={e => setFormData({ ...formData, fees: e.target.value })} 
               />
             </div>
           </div>
-          <button className="btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => onSave(formData)}>
+          <button className="btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={handleSave}>
             {isEdit ? 'Update Transaction' : 'Save Transaction'}
           </button>
         </div>
@@ -1640,7 +1982,7 @@ function HistoryModal({ ticker, transactions, onClose, onDelete }: { ticker: str
                       tx.type === 'Withdraw' ? 'badge-yellow' : 'badge-purple'
                     }`}>{tx.type}</span>
                   </td>
-                  <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{tx.broker || 'Thndr'}</td>
+                  <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{tx.broker || 'Thunder'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{tx.quantity || '-'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>
                     {tx.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -3193,7 +3535,7 @@ function HoldingHistory({ holdings, analyticsData, transactions }: { holdings: H
 }
 
 
-function PerformanceDashboard({ transactions, holdings, analyticsData, portfolioGrade, walletBalance, marketData }: { transactions: Transaction[], holdings: Holding[], analyticsData: any, portfolioGrade: string, walletBalance: number, marketData: any }) {
+function PerformanceDashboard({ transactions, holdings, analyticsData, walletBalance, marketData }: { transactions: Transaction[], holdings: Holding[], analyticsData: any, walletBalance: number, marketData: any }) {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState('6m');
@@ -3303,35 +3645,44 @@ function PerformanceDashboard({ transactions, holdings, analyticsData, portfolio
   const alpha = portPerf - indexPerf;
 
   const uniqueSectors = [...new Set(holdings.map(h => h.sector))].length;
-  const divScore = Math.min(100, (uniqueSectors / 5) * 100);
-  const alphaScore = alpha > 0 ? 100 : 70;
-  const healthScore = Math.round((divScore * 0.4) + (alphaScore * 0.4) + 20);
-  const grade = healthScore > 90 ? 'A+' : healthScore > 80 ? 'A' : healthScore > 70 ? 'B' : 'C';
+  // Diversification blends sector spread with single-name concentration (HHI penalty).
+  const posValues = holdings.map(h => h.shares * h.livePrice);
+  const eqTotal = posValues.reduce((a, b) => a + b, 0) || 1;
+  const hhi = posValues.reduce((a, v) => a + Math.pow(v / eqTotal, 2), 0); // 0..1, lower = more diversified
+  const sectorSpread = Math.min(100, (uniqueSectors / 5) * 100);
+  const concentrationScore = Math.max(0, 100 - (hhi * 100)); // penalize concentration
+  const divScore = Math.round(sectorSpread * 0.5 + concentrationScore * 0.5);
+  // Alpha contributes continuously (capped), not as a binary flag.
+  const alphaScore = Math.max(0, Math.min(100, 60 + alpha * 4));
+  const healthScore = Math.round(divScore * 0.45 + alphaScore * 0.45 + 10);
+  const grade = healthScore > 90 ? 'A+' : healthScore > 80 ? 'A' : healthScore > 70 ? 'B' : healthScore > 60 ? 'C' : 'D';
 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem', padding: '0 1.5rem 3rem' }}>
       
-      {/* Consolidated Intelligence Hub */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
-          <div className="card" style={{ padding: '1.5rem' }}>
-            <div className="card-header"><h3 className="card-title" style={{ fontSize: '1rem' }}>Market Sentinel</h3><Bell size={20} className="text-yellow" /></div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {holdings.slice(0, 3).map((h:any) => (
-                  <div key={h.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
-                      <span style={{ fontWeight: 700 }}>{h.ticker}</span>
-                      <span style={{ fontSize: '0.8rem' }} className={analyticsData[h.ticker]?.sentiment?.includes('BULL') ? 'text-green' : 'text-yellow'}>
-                        {analyticsData[h.ticker]?.sentiment || 'Neutral Sentiment'}
-                      </span>
-                  </div>
-                ))}
-            </div>
-          </div>
+      {/* Allocation Snapshot (Market Sentinel removed — superseded by the Institutional
+          Sentiment engine in Holding History and the Action Center in Wealth Center) */}
+      <div>
           <div className="card" style={{ padding: '1.5rem', background: 'var(--bg-app)', border: '1px dashed var(--border-color)' }}>
-            <h3 className="card-title" style={{ marginBottom: '1rem', fontSize: '1rem' }}>Wealth Allocation Insight</h3>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                Based on your <b>{portfolioGrade}</b> health score, the AI recommendation is to maintain <b>{Math.round(walletBalance * 0.3).toLocaleString()} EGP</b> in liquid cash while deploying into defensive industrial sectors to hedge against current EGX volatility.
-            </p>
+            <h3 className="card-title" style={{ marginBottom: '1rem', fontSize: '1rem' }}>Allocation Snapshot</h3>
+            {(() => {
+              // Computed from real positions — no hardcoded advice.
+              const pos = holdings.map((h: any) => ({ ticker: h.ticker, sector: h.sector, value: h.shares * h.livePrice }));
+              const eq = pos.reduce((a, p) => a + p.value, 0) || 1;
+              const top = [...pos].sort((a, b) => b.value - a.value)[0];
+              const sectors = new Set(holdings.map((h: any) => h.sector));
+              const cashPct = (walletBalance / (eq + walletBalance)) * 100;
+              const topPct = top ? (top.value / eq) * 100 : 0;
+              const concentrated = topPct > 25;
+              return (
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                  You hold <b>{holdings.length}</b> positions across <b>{sectors.size}</b> sectors.
+                  Largest: <b>{top?.ticker}</b> at <b style={{ color: concentrated ? 'var(--color-yellow)' : 'var(--color-green)' }}>{topPct.toFixed(0)}%</b> of equity{concentrated ? ' — above the 25% single-name guideline; consider trimming.' : ' — within prudent limits.'}{' '}
+                  Cash buffer is <b>{cashPct.toFixed(0)}%</b>. See the <b>Wealth Center</b> tab for risk, true returns and ranked actions.
+                </p>
+              );
+            })()}
           </div>
       </div>
       
@@ -3518,7 +3869,7 @@ function PerformanceDashboard({ transactions, holdings, analyticsData, portfolio
   );
 }
 
-function MarketIntelligence({ watchlist, setWatchlist, marketData, analyticsData, setAnalysisStock, shariaTickers }: any) {
+function MarketIntelligence({ watchlist, setWatchlist, marketData, analyticsData, setAnalysisStock, shariaTickers, onSelectStock }: any) {
   const [newTicker, setNewTicker] = useState('');
   const [showShariaOnly, setShowShariaOnly] = useState(false);
 
@@ -3660,7 +4011,12 @@ function MarketIntelligence({ watchlist, setWatchlist, marketData, analyticsData
                 const ai = analyticsData[t];
                 const isSharia = shariaTickers.includes(t);
                 return (
-                  <tr key={t}>
+                  <tr 
+                    key={t} 
+                    className="clickable-row" 
+                    onClick={() => onSelectStock && onSelectStock(t)}
+                    title="Click to view stock history & details"
+                  >
                     <td style={{ fontWeight: 700 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {t}
@@ -3685,8 +4041,8 @@ function MarketIntelligence({ watchlist, setWatchlist, marketData, analyticsData
                       </span>
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      <button className="icon-btn" onClick={() => setAnalysisStock({ ticker: t, company: data?.name || t, livePrice: data?.price || 0, sector: data?.sector || 'Unknown' })} title="Analyze"><Brain size={16} className="text-blue" /></button>
-                      <button className="icon-btn" onClick={() => removeFromWatchlist(t)} title="Remove"><Trash2 size={16} className="text-red" /></button>
+                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); setAnalysisStock({ ticker: t, company: data?.name || t, livePrice: data?.price || 0, sector: data?.sector || 'Unknown' }); }} title="Analyze"><Brain size={16} className="text-blue" /></button>
+                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); removeFromWatchlist(t); }} title="Remove"><Trash2 size={16} className="text-red" /></button>
                     </td>
                   </tr>
                 );

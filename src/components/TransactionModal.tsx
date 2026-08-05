@@ -14,7 +14,8 @@ const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, on
   const [ticker, setTicker] = useState('SWDY');
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
-  const [fees, setFees] = useState('0');
+  const [broker, setBroker] = useState('Thunder');
+  const [fees, setFees] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
 
   if (!isOpen) return null;
@@ -26,8 +27,9 @@ const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, on
       date,
       type,
       ticker: ['Buy', 'Sell', 'Dividend'].includes(type) ? ticker : undefined,
-      quantity: ['Buy', 'Sell'].includes(type) ? parseFloat(quantity) : undefined,
-      price: parseFloat(price),
+      quantity: ['Buy', 'Sell'].includes(type) ? parseFloat(quantity) || 0 : undefined,
+      price: parseFloat(price) || 0,
+      broker,
       fees: parseFloat(fees) || 0,
     };
     onAddTransaction(newTx);
@@ -63,7 +65,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, on
             <div className="form-group">
               <label>Ticker</label>
               <select value={ticker} onChange={(e) => setTicker(e.target.value)}>
-                {Object.keys(COMPANY_META).map(t => (
+                {Object.keys(COMPANY_META).sort().map(t => (
                   <option key={t} value={t}>{t} - {COMPANY_META[t].company}</option>
                 ))}
               </select>
@@ -77,7 +79,9 @@ const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, on
                 <input
                   type="number"
                   step="any"
+                  placeholder="0"
                   value={quantity}
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => setQuantity(e.target.value)}
                   required
                 />
@@ -87,8 +91,10 @@ const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, on
               <label>{['Deposit', 'Withdraw', 'Dividend'].includes(type) ? 'Amount' : 'Price per Share'}</label>
               <input
                 type="number"
-                step="0.0001"
+                step="any"
+                placeholder="0.00"
                 value={price}
+                onFocus={(e) => e.target.select()}
                 onChange={(e) => setPrice(e.target.value)}
                 required
               />
@@ -97,23 +103,33 @@ const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, on
 
           <div className="grid-2">
             <div className="form-group">
+              <label>Broker Name</label>
+              <select value={broker} onChange={(e) => setBroker(e.target.value)}>
+                <option value="Thunder">Thunder</option>
+                <option value="Telda">Telda</option>
+              </select>
+            </div>
+            <div className="form-group">
               <label>Fees (EGP)</label>
               <input
                 type="number"
-                step="0.01"
+                step="any"
+                placeholder="0"
                 value={fees}
+                onFocus={(e) => e.target.select()}
                 onChange={(e) => setFees(e.target.value)}
               />
             </div>
-            <div className="form-group">
-              <label>Date</label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                required
-              />
-            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
           </div>
 
           <button type="submit" className="submit-btn">
