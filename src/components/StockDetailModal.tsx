@@ -4,17 +4,18 @@ import {
   Brain, Activity, BarChart2, Layers, Search
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import type { Transaction, Holding } from '../types';
+import type { Transaction, Holding, PnlExtreme, ClosedPosition } from '../types';
 import { COMPANY_META } from '../types';
+import { capitalWeightedDays } from '../utils/portfolioMetrics';
 
 interface StockDetailModalProps {
   ticker: string | null;
   transactions: Transaction[];
   holdings: Holding[];
-  closedPositions: any[];
+  closedPositions: ClosedPosition[];
   dividendsByTicker: Record<string, number>;
   marketData: Record<string, any>;
-  pnlExtremes: Record<string, { maxPnl: number; maxPnlDate: string; maxPnlPct: number; minPnl: number; minPnlDate: string; minPnlPct: number }>;
+  pnlExtremes: Record<string, PnlExtreme>;
   onClose: () => void;
   onDeleteTransaction: (id: string) => void;
   onAddTransactionForTicker: (ticker: string) => void;
@@ -88,6 +89,28 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({
 
   const firstBuyDate = chronologicalTx.find(t => t.type === 'Buy')?.date || '—';
   const totalTxCount = stockTx.length;
+
+  // Capital-weighted holding period: weights each buy lot by the capital it deployed,
+  // so money added late isn't credited with the full calendar holding period.
+  const lastSellDate = sells.length > 0 ? [...sells].sort((a, b) => b.date.localeCompare(a.date))[0].date : null;
+  const cwEndDate = currentShares > 0 ? new Date().toISOString().split('T')[0] : (lastSellDate || new Date().toISOString().split('T')[0]);
+  const capWeightedDays = firstBuyDate !== '—'
+    ? capitalWeightedDays(buys.map(b => ({ date: b.date, cost: (b.quantity || 0) * (b.price || 0) + (b.fees || 0) })), cwEndDate)
+    : null;
+  const calendarDays = firstBuyDate !== '—'
+    ? Math.max(0, Math.round((new Date(cwEndDate + 'T00:00:00').getTime() - new Date(firstBuyDate + 'T00:00:00').getTime()) / 86400000))
+    : null;
+
+  // Re-entry detection: shares fell to ~0 (a closed cycle) and were then rebought.
+  // When true, the current-cycle avg cost hides the lifetime cost across all cycles.
+  let runningShares = 0, hitZeroAfterBuy = false, hadBuy = false;
+  chronologicalTx.forEach(t => {
+    if (t.type === 'Buy') { runningShares += (t.quantity || 0); hadBuy = true; }
+    else if (t.type === 'Sell') { runningShares -= (t.quantity || 0); if (hadBuy && runningShares <= 0.0001) hitZeroAfterBuy = true; }
+  });
+  const isReentered = hitZeroAfterBuy && currentShares > 0;
+  const lifetimeAvgCost = totalBoughtShares > 0 ? totalBuySpend / totalBoughtShares : 0;
+  const currentCycleAvgCost = holding ? holding.avgCost : avgBuyPrice;
 
   // Fetch chart history when overview tab is selected
   useEffect(() => {
@@ -191,6 +214,12 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({
                 ) : (
                   <span className="badge badge-yellow" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Watchlist Stock</span>
                 )}
+                {isReentered && (
+                  <span className="badge badge-yellow" style={{ fontSize: '0.75rem', fontWeight: 600 }}
+                        title="This ticker had a fully-closed cycle and was then rebought. Realized gains from prior cycles are not banked — they are back in the market as this position.">
+                    ↻ Position re-entered
+                  </span>
+                )}
               </div>
               <p style={{ margin: '2px 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 500 }}>
                 {companyName}
@@ -286,8 +315,9 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({
 
           {/* Card 4: Combined Net Performance */}
           <div style={{ background: 'var(--bg-card)', padding: '1rem 1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Total Stock Return
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}
+                 title={isReentered ? 'This ticker was re-entered — the realized figure is from prior closed cycles and is not a settled final result for the position.' : undefined}>
+              {isReentered ? 'Realized (prior cycles)' : 'Total Stock Return'}
             </div>
             <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 800, margin: '4px 0 2px', color: combinedTotalReturn >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
               {combinedTotalReturn >= 0 ? '+' : ''}EGP {combinedTotalReturn.toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -366,9 +396,16 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({
                       <strong className="mono">{currentShares.toLocaleString()}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Average Purchase Cost</span>
-                      <strong className="mono">EGP {avgBuyPrice > 0 ? avgBuyPrice.toFixed(2) : (holding?.avgCost || 0).toFixed(2)}</strong>
+                      <span style={{ color: 'var(--text-secondary)' }}>{isReentered ? 'Current-cycle Avg Cost' : 'Average Purchase Cost'}</span>
+                      <strong className="mono">EGP {currentCycleAvgCost > 0 ? currentCycleAvgCost.toFixed(2) : (avgBuyPrice || 0).toFixed(2)}</strong>
                     </div>
+                    {isReentered && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}
+                           title="Average cost across every buy in all cycles of this ticker, not just the current open position.">
+                        <span style={{ color: 'var(--text-secondary)' }}>Lifetime Avg Cost (all cycles)</span>
+                        <strong className="mono" style={{ color: 'var(--color-blue)' }}>EGP {lifetimeAvgCost.toFixed(2)}</strong>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}>
                       <span style={{ color: 'var(--text-secondary)' }}>Total Cost Basis</span>
                       <strong className="mono">EGP {costBasis.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
@@ -402,6 +439,14 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({
                       <span style={{ color: 'var(--text-secondary)' }}>Average Sell Price</span>
                       <strong className="mono">{avgSellPrice > 0 ? `EGP ${avgSellPrice.toFixed(2)}` : '—'}</strong>
                     </div>
+                    {avgSellPrice > 0 && livePrice > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', paddingTop: '4px', borderTop: '1px dashed var(--border-color)' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Price since exit</span>
+                        <strong className="mono" style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>
+                          {livePrice.toFixed(2)} <span style={{ opacity: 0.7 }}>(sold at {avgSellPrice.toFixed(2)})</span>
+                        </strong>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}>
                       <span style={{ color: 'var(--text-secondary)' }}>Total Fees Paid</span>
                       <strong className="mono" style={{ color: 'var(--text-muted)' }}>EGP {totalFeesPaid.toFixed(2)}</strong>
@@ -410,6 +455,15 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({
                       <span style={{ color: 'var(--text-secondary)' }}>First Purchase Date</span>
                       <strong className="mono">{firstBuyDate}</strong>
                     </div>
+                    {capWeightedDays !== null && calendarDays !== null && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}
+                           title="Calendar days count from the first buy. Capital-weighted days weight each lot by the money it deployed, so late additions don't inflate the holding period.">
+                        <span style={{ color: 'var(--text-secondary)' }}>Holding period</span>
+                        <strong className="mono">
+                          {calendarDays}d cal · <span style={{ color: 'var(--color-blue)' }}>{capWeightedDays}d cap-wtd</span>
+                        </strong>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -424,12 +478,19 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({
                         <div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--color-green)', fontWeight: 700 }}>HISTORICAL PEAK MAX P&L</div>
                           <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                            {new Date(extremes.maxPnlDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                            {new Date(extremes.maxPnlDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                           </div>
                         </div>
-                        <div className="mono" style={{ textAlign: 'right', color: 'var(--color-green)', fontWeight: 800 }}>
-                          <div>+{extremes.maxPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
-                          <div style={{ fontSize: '0.75rem' }}>+{extremes.maxPnlPct.toFixed(2)}%</div>
+                        <div className="mono" style={{ textAlign: 'right', color: extremes.maxPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 800 }}>
+                          <div>
+                            {extremes.maxPnl >= 0 ? '+' : ''}{extremes.maxPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            {extremes.maxPnlPrice != null && extremes.maxPnlPrice > 0 && (
+                              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500, marginLeft: '6px' }}>
+                                ({extremes.maxPnlPrice.toFixed(2)})
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.75rem' }}>{extremes.maxPnlPct >= 0 ? '+' : ''}{extremes.maxPnlPct.toFixed(2)}%</div>
                         </div>
                       </div>
 
@@ -437,18 +498,25 @@ export const StockDetailModal: React.FC<StockDetailModalProps> = ({
                         <div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--color-red)', fontWeight: 700 }}>HISTORICAL TROUGH MIN P&L</div>
                           <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                            {new Date(extremes.minPnlDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                            {new Date(extremes.minPnlDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                           </div>
                         </div>
-                        <div className="mono" style={{ textAlign: 'right', color: 'var(--color-red)', fontWeight: 800 }}>
-                          <div>{extremes.minPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
-                          <div style={{ fontSize: '0.75rem' }}>{extremes.minPnlPct.toFixed(2)}%</div>
+                        <div className="mono" style={{ textAlign: 'right', color: extremes.minPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 800 }}>
+                          <div>
+                            {extremes.minPnl >= 0 ? '+' : ''}{extremes.minPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            {extremes.minPnlPrice != null && extremes.minPnlPrice > 0 && (
+                              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500, marginLeft: '6px' }}>
+                                ({extremes.minPnlPrice.toFixed(2)})
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.75rem' }}>{extremes.minPnlPct >= 0 ? '+' : ''}{extremes.minPnlPct.toFixed(2)}%</div>
                         </div>
                       </div>
                     </div>
                   ) : (
                     <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontStyle: 'italic', padding: '1rem 0' }}>
-                      Historical peak extreme data calculation in progress...
+                      No historical price range available for this position yet.
                     </div>
                   )}
                 </div>

@@ -1,4 +1,4 @@
-export type TransactionType = 'Buy' | 'Sell' | 'Dividend' | 'Deposit' | 'Withdraw';
+export type TransactionType = 'Buy' | 'Sell' | 'Dividend' | 'StockDividend' | 'Deposit' | 'Withdraw';
 
 export interface Transaction {
   id: string;
@@ -30,6 +30,41 @@ export interface PortfolioStats {
   totalDeposited: number;
   totalFeesPaid: number;
   dividendsCollected: number;
+}
+
+export interface PnlExtreme {
+  maxPnl: number;
+  maxPnlDate: string;
+  maxPnlPct: number;
+  maxPnlPrice: number;
+  minPnl: number;
+  minPnlDate: string;
+  minPnlPct: number;
+  minPnlPrice: number;
+}
+
+export interface ClosedPosition {
+  ticker: string;
+  company: string;
+  sector: string;
+  soldShares: number;
+  avgBuyPrice: number;
+  avgSellPrice: number;
+  livePrice: number;
+  postSellDiffPct: number;
+  postSellAmountDiff: number;
+  costBasisSold: number;
+  netProceeds: number;
+  realizedPnL: number;
+  realizedPnLPct: number;
+  dividends: number;
+  totalReturn: number;
+  fees: number;
+  firstBuyDate: string;
+  lastSellDate: string;
+  holdingDays: number;
+  isFullyClosed: boolean;
+  openShares: number;
 }
 
 // Meta info about companies
@@ -83,6 +118,29 @@ export const COMPANY_META: Record<string, { company: string, sector: string }> =
   'SUGR': { company: 'Delta Sugar Company', sector: 'Food & Beverage' },
   'SWDY': { company: 'El Sewedy Electric Company', sector: 'Electrical' },
   'TAQA': { company: 'Taqa Arabia', sector: 'Energy' },
-  'TMGH': { company: 'Talaat Moustafa Group Holding', sector: 'Real Estate' },
   'VALO': { company: 'Valu', sector: 'Financial Services' }
+};
+
+export interface StockDividendMeta {
+  frequency: 'Yearly' | 'Semi-Annually' | 'Quarterly' | 'None';
+  defaultDps?: number;
+  notes?: string;
+}
+
+export const DIVIDEND_META: Record<string, StockDividendMeta> = {
+  'ORWE': { frequency: 'Yearly', defaultDps: 1.75, notes: 'Annual (AGM Apr/May)' },
+  'SWDY': { frequency: 'Yearly', defaultDps: 1.85, notes: 'Annual (AGM May/Jun)' },
+  'AMOC': { frequency: 'Semi-Annually', defaultDps: 0.65, notes: '2 Installments' },
+  'ABUK': { frequency: 'Yearly', defaultDps: 7.00, notes: 'Annual (Oct/Nov)' },
+  'MICH': { frequency: 'Yearly', defaultDps: 3.50, notes: 'Annual (Oct/Nov)' },
+  'OLFI': { frequency: 'Yearly', defaultDps: 1.50, notes: 'Annual (Mar/Apr)' },
+  'POUL': { frequency: 'Yearly', defaultDps: 2.00, notes: 'Annual (Apr/May)' },
+  'MPCI': { frequency: 'Yearly', defaultDps: 15.00, notes: 'Annual (Oct/Nov)' },
+  'SUGR': { frequency: 'Yearly', defaultDps: 2.50, notes: 'Annual (Apr/May)' },
+  'COMI': { frequency: 'Yearly', defaultDps: 2.75, notes: 'Annual (Mar/Apr)' },
+  'EAST': { frequency: 'Semi-Annually', defaultDps: 3.80, notes: 'Interim & Final' },
+  'MFPC': { frequency: 'Yearly', defaultDps: 2.00, notes: 'Annual (Mar/Apr)' },
+  'SKPC': { frequency: 'Semi-Annually', defaultDps: 1.25, notes: 'Interim & Final' },
+  'EKHO': { frequency: 'Yearly', defaultDps: 2.90, notes: 'Annual (Mar/Apr)' },
+  'ETEL': { frequency: 'Yearly', defaultDps: 1.50, notes: 'Annual (Apr/May)' },
 };

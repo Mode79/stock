@@ -73,6 +73,26 @@ export function totalReturnOnCapital(transactions: any[], terminalValue: number)
   return r2(((returned + terminalValue - invested) / invested) * 100);
 }
 
+// Capital-weighted holding period (days): Σ(cost_i × days_held_i) / Σ(cost_i).
+// Weights each buy lot by the capital it deployed, so money that went in late
+// doesn't get credited with the full calendar holding period. `endDate` is the
+// sell date for a closed cycle, or today for an open one.
+export function capitalWeightedDays(
+  buys: { date: string; cost: number }[],
+  endDate: string,
+): number | null {
+  const end = new Date(endDate + 'T00:00:00').getTime();
+  let wSum = 0, cSum = 0;
+  buys.forEach(b => {
+    if (!(b.cost > 0)) return;
+    const days = Math.max(0, (end - new Date(b.date + 'T00:00:00').getTime()) / 86400000);
+    wSum += b.cost * days;
+    cSum += b.cost;
+  });
+  if (cSum <= 0) return null;
+  return Math.round(wSum / cSum);
+}
+
 // ---------------- Aggregate portfolio risk ----------------
 export function dailyReturns(closes: number[]): number[] {
   const r: number[] = [];

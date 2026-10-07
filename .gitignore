@@ -33,6 +33,7 @@ scratch/
 
 # Database
 *.db
+!portfolio.db
 *.sqlite
 
 # Claude assistant local settings

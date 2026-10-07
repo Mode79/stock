@@ -11,6 +11,7 @@ interface TransactionModalProps {
 
 const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, onAddTransaction }) => {
   const [type, setType] = useState<TransactionType>('Buy');
+  const isStockDividend = type === 'StockDividend';
   const [ticker, setTicker] = useState('SWDY');
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState('');
@@ -26,9 +27,9 @@ const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, on
       id: crypto.randomUUID(),
       date,
       type,
-      ticker: ['Buy', 'Sell', 'Dividend'].includes(type) ? ticker : undefined,
-      quantity: ['Buy', 'Sell'].includes(type) ? parseFloat(quantity) || 0 : undefined,
-      price: parseFloat(price) || 0,
+      ticker: ['Buy', 'Sell', 'Dividend', 'StockDividend'].includes(type) ? ticker : undefined,
+      quantity: ['Buy', 'Sell', 'StockDividend'].includes(type) ? parseFloat(quantity) || 0 : undefined,
+      price: isStockDividend ? 0 : (parseFloat(price) || 0),
       broker,
       fees: parseFloat(fees) || 0,
     };
@@ -48,20 +49,20 @@ const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, on
           <div className="form-group">
             <label>Type</label>
             <div className="type-selector">
-              {(['Buy', 'Sell', 'Dividend', 'Deposit', 'Withdraw'] as TransactionType[]).map(t => (
+              {(['Buy', 'Sell', 'Dividend', 'StockDividend', 'Deposit', 'Withdraw'] as TransactionType[]).map(t => (
                 <button
                   key={t}
                   type="button"
                   className={`type-btn ${type === t ? 'active' : ''}`}
                   onClick={() => setType(t)}
                 >
-                  {t}
+                  {t === 'StockDividend' ? 'Stock Div' : t}
                 </button>
               ))}
             </div>
           </div>
 
-          {['Buy', 'Sell', 'Dividend'].includes(type) && (
+          {['Buy', 'Sell', 'Dividend', 'StockDividend'].includes(type) && (
             <div className="form-group">
               <label>Ticker</label>
               <select value={ticker} onChange={(e) => setTicker(e.target.value)}>
@@ -73,9 +74,9 @@ const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, on
           )}
 
           <div className="grid-2">
-            {['Buy', 'Sell'].includes(type) && (
+            {['Buy', 'Sell', 'StockDividend'].includes(type) && (
               <div className="form-group">
-                <label>Quantity</label>
+                <label>{isStockDividend ? 'Shares Received' : 'Quantity'}</label>
                 <input
                   type="number"
                   step="any"
@@ -88,7 +89,7 @@ const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, on
               </div>
             )}
             <div className="form-group">
-              <label>{['Deposit', 'Withdraw', 'Dividend'].includes(type) ? 'Amount' : 'Price per Share'}</label>
+              <label>{isStockDividend ? 'Price per Share (0 if free)' : ['Deposit', 'Withdraw', 'Dividend'].includes(type) ? 'Amount' : 'Price per Share'}</label>
               <input
                 type="number"
                 step="any"

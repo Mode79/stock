@@ -6,23 +6,158 @@ import {
 import { 
   ArrowUpRight, ArrowDownRight, RefreshCw, AlertTriangle, 
   Wallet, DollarSign, Activity, Clock, Plus, PlusCircle, Trash2, X, Search, TrendingUp,
-  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell, Pencil, VolumeX, Volume2,
-  Coins
+  BarChart2, Sparkles, Brain, Info, Target, ShieldAlert, Settings as SettingsIcon, ShieldCheck, BookOpen, Bell, Pencil,
+  Coins, FilterX
 } from 'lucide-react';
 import { AreaChart, Area, LineChart, Line } from 'recharts';
 import { InfoTooltip } from './components/InfoTooltip';
 import './index.css';
 import { calculateRecommendation } from './utils/recommendationEngine';
 import { buildTechnicalProfile, resampleWeekly } from './utils/technicalAnalysis';
+import { isEGXMarketOpen, getEGXMarketStatusText } from './utils/marketHours';
 import { parseFundamentals, scoreFundamentals } from './utils/fundamentals';
 import { backtestBullishSetup, returnCorrelation } from './utils/backtest';
 import { WealthCenter } from './components/WealthCenter';
 import { BenchmarkCenter } from './components/BenchmarkCenter';
+import { SwingAdvice } from './components/SwingAdvice';
 import { StockDetailModal } from './components/StockDetailModal';
-import { COMPANY_META } from './types';
+import { COMPANY_META, DIVIDEND_META, type PnlExtreme, type ClosedPosition } from './types';
+import { useLocalStorage } from './hooks/useLocalStorage';
+import { xirr, buildPortfolioCashflows } from './utils/portfolioMetrics';
+
+// Correlation clusters: group holdings that are driven by the same underlying macro variables,
+// so that "7 names" doesn't hide "one macro bet". Default derived from sector; user-overridable.
+const SECTOR_TO_CLUSTER: Record<string, string> = {
+  'Energy': 'Energy & Petrochemicals',
+  'Chemicals': 'Energy & Petrochemicals',
+  'Basic Materials': 'Energy & Petrochemicals',
+  'Food & Beverage': 'Consumer Staples',
+  'Consumer Goods': 'Consumer Staples',
+  'Pharmaceuticals': 'Healthcare & Pharma',
+  'Healthcare': 'Healthcare & Pharma',
+  'Electrical': 'Industrials',
+  'Automotive': 'Industrials',
+  'Construction': 'Industrials',
+  'Logistics': 'Industrials',
+  'Textiles': 'Textiles',
+  'Banking': 'Financials',
+  'Financial Services': 'Financials',
+  'Fintech': 'Financials',
+  'Real Estate': 'Real Estate',
+  'Telecommunications': 'Telecom & Utilities',
+  'Education': 'Other',
+};
+const clusterFor = (sector: string | undefined, override?: string) =>
+  override || SECTOR_TO_CLUSTER[sector || ''] || 'Other';
+const CLUSTER_COLORS = ['#3b82f6', '#f59e0b', '#22c55e', '#ef4444', '#a855f7', '#14b8a6', '#ec4899', '#94a3b8'];
+const CLUSTER_OPTIONS = Array.from(new Set(Object.values(SECTOR_TO_CLUSTER))).sort();
+
+// Concentration & Exposure — surfaces the single macro bet hidden behind several names.
+// Lives in the Portfolio Health tab; the Portfolio tab is kept for real-time data only.
+function ConcentrationPanel({ holdings, clusterMap, setClusterMap, cpiRate, setCpiRate, cashYield, setCashYield }: {
+  holdings: { ticker: string; sector: string; shares: number; livePrice: number }[];
+  clusterMap: Record<string, string>;
+  setClusterMap: (v: Record<string, string>) => void;
+  cpiRate: number; setCpiRate: (v: number) => void;
+  cashYield: number; setCashYield: (v: number) => void;
+}) {
+  if (holdings.length === 0) return null;
+  const rows = holdings.map(h => {
+    // COMPANY_META has consistent, curated sectors; the live feed's sector
+    // strings vary and often don't map. Prefer meta, fall back to live.
+    const metaSector = COMPANY_META[h.ticker]?.sector || h.sector;
+    return {
+      ticker: h.ticker, sector: metaSector,
+      cluster: clusterFor(metaSector, clusterMap[h.ticker]),
+      mv: h.shares * h.livePrice,
+    };
+  });
+  const equity = rows.reduce((s, r) => s + r.mv, 0);
+  if (equity <= 0) return null;
+  const byCluster: Record<string, { mv: number; tickers: string[] }> = {};
+  rows.forEach(r => {
+    if (!byCluster[r.cluster]) byCluster[r.cluster] = { mv: 0, tickers: [] };
+    byCluster[r.cluster].mv += r.mv;
+    byCluster[r.cluster].tickers.push(r.ticker);
+  });
+  const clusters = Object.entries(byCluster)
+    .map(([name, v]) => ({ name, ...v, pct: (v.mv / equity) * 100 }))
+    .sort((a, b) => b.mv - a.mv);
+  const WARN = 40;
+  const topCluster = clusters[0];
+  return (
+    <div className="card" style={{ padding: '1rem 1.25rem', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+        <h3 className="card-title" style={{ fontSize: '1.05rem', margin: 0 }}>Concentration & Exposure</h3>
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+          Single market: <strong style={{ color: '#f97316' }}>100% EGX</strong> · Single currency: <strong style={{ color: '#f97316' }}>100% EGP</strong>
+        </div>
+      </div>
+      {/* stacked exposure bar */}
+      <div style={{ display: 'flex', height: '12px', borderRadius: '6px', overflow: 'hidden', marginBottom: '10px' }}>
+        {clusters.map((c, i) => (
+          <div key={c.name} title={`${c.name}: ${c.pct.toFixed(1)}%`} style={{ width: `${c.pct}%`, background: CLUSTER_COLORS[i % CLUSTER_COLORS.length] }} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {clusters.map((c, i) => (
+          <div key={c.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '10px', height: '10px', borderRadius: '2px', background: CLUSTER_COLORS[i % CLUSTER_COLORS.length], display: 'inline-block' }} />
+              <strong>{c.name}</strong>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem' }}>({c.tickers.join(', ')})</span>
+            </span>
+            <strong className="mono" style={{ color: c.pct >= WARN ? '#f97316' : 'var(--text-primary)' }}>
+              {c.pct.toFixed(1)}%{c.pct >= WARN ? ' ⚠' : ''}
+            </strong>
+          </div>
+        ))}
+      </div>
+      {topCluster && topCluster.pct >= WARN && (
+        <div style={{ fontSize: '0.72rem', color: '#f97316', marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed var(--border-color)' }}>
+          ⚠ {topCluster.name} is {topCluster.pct.toFixed(0)}% of equity ({topCluster.tickers.join(', ')}) — these move on the same drivers. This is one bet, not diversification.
+        </div>
+      )}
+      {/* Real-value assumptions (used by the Wallet idle-cash estimate) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', marginTop: '10px', paddingTop: '8px', borderTop: '1px dashed var(--border-color)', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+        <span style={{ fontWeight: 600 }}>Assumptions:</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          Inflation (CPI)
+          <input type="number" step="0.1" value={cpiRate}
+            onChange={e => setCpiRate(parseFloat(e.target.value) || 0)}
+            style={{ width: '58px', padding: '2px 5px', background: '#1e2130', color: '#e2e8f0', border: '1px solid var(--border-color)', borderRadius: '4px' }} />%
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          Cash yield
+          <input type="number" step="0.1" value={cashYield}
+            onChange={e => setCashYield(parseFloat(e.target.value) || 0)}
+            style={{ width: '58px', padding: '2px 5px', background: '#1e2130', color: '#e2e8f0', border: '1px solid var(--border-color)', borderRadius: '4px' }} />%
+        </label>
+      </div>
+      {/* Per-ticker cluster override */}
+      <details style={{ marginTop: '8px', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+        <summary style={{ cursor: 'pointer', userSelect: 'none' }}>Adjust clusters</summary>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '6px', marginTop: '8px' }}>
+          {rows.map(r => (
+            <div key={r.ticker} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <strong style={{ minWidth: '42px' }}>{r.ticker}</strong>
+              <select value={r.cluster}
+                onChange={e => setClusterMap({ ...clusterMap, [r.ticker]: e.target.value })}
+                style={{ flex: 1, padding: '2px 4px', background: '#1e2130', color: '#e2e8f0', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.72rem' }}>
+                {Array.from(new Set([...CLUSTER_OPTIONS, r.cluster, 'Other'])).sort().map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}
 
 // --- TYPES ---
-type TransactionType = 'Buy' | 'Sell' | 'Deposit' | 'Withdraw' | 'Dividend';
+type TransactionType = 'Buy' | 'Sell' | 'Deposit' | 'Withdraw' | 'Dividend' | 'StockDividend';
 
 interface Transaction {
   id: string;
@@ -249,28 +384,153 @@ function LearningCenter() {
 
 function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  // Real-value / idle-cash config (user-editable, persisted). CPI = annual headline inflation %, cashYield = annual profit rate on idle cash %.
+  const [cpiRate, setCpiRate] = useLocalStorage<number>('cfg_cpi_rate', 14.9);
+  const [cashYield, setCashYield] = useLocalStorage<number>('cfg_cash_yield', 0);
+  // User-editable correlation-cluster tag per ticker (for concentration view).
+  const [clusterMap, setClusterMap] = useLocalStorage<Record<string, string>>('cfg_cluster_map', {});
   const [marketData, setMarketData] = useState<Record<string, any>>({});
   const [analyticsData, setAnalyticsData] = useState<Record<string, any>>({});
   const [isUpdating, setIsUpdating] = useState(false);
   const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
   const [watchlist, setWatchlist] = useState<string[]>(['COMI', 'EKHO', 'TMGH', 'ABUK']);
   const [staleData, setStaleData] = useState(false);
-  const [pnlExtremes, setPnlExtremes] = useState<Record<string, { maxPnl: number; maxPnlDate: string; maxPnlPct: number; minPnl: number; minPnlDate: string; minPnlPct: number }>>({});
-  const [athAlertPlaying, setAthAlertPlaying] = useState(false);
-  const athAudioCtxRef = useRef<AudioContext | null>(null);
-  const athGainRef = useRef<GainNode | null>(null);
-  const athIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const athAlertAcknowledgedRef = useRef<Set<string>>(new Set());
+  const [pnlExtremes, setPnlExtremes] = useState<Record<string, PnlExtreme>>({});
+  const [egx30Alpha, setEgx30Alpha] = useState<number | null>(null);
+  const [egx30Return, setEgx30Return] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [selectedStockTicker, setSelectedStockTicker] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'portfolio' | 'history' | 'health' | 'market' | 'simulator' | 'holdingHistory' | 'wealth' | 'benchmarks'>('portfolio');
+  const [activeTab, setActiveTab] = useState<'portfolio' | 'history' | 'health' | 'market' | 'simulator' | 'holdingHistory' | 'wealth' | 'benchmarks' | 'advice'>('portfolio');
   const [isLearningOpen, setIsLearningOpen] = useState(false);
   const [historyStock, setHistoryStock] = useState<string | null>(null);
   const [analysisStock, setAnalysisStock] = useState<Holding | null>(null);
   const [priceHistoryStock, setPriceHistoryStock] = useState<Holding | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [historySort, setHistorySort] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyTypeFilter, setHistoryTypeFilter] = useState('ALL');
+  const [historyTickerFilter, setHistoryTickerFilter] = useState('ALL');
+  const [historyBrokerFilter, setHistoryBrokerFilter] = useState('ALL');
+  const [historyDateFrom, setHistoryDateFrom] = useState('');
+  const [historyDateTo, setHistoryDateTo] = useState('');
+  const [portfolioBrokerFilter, setPortfolioBrokerFilter] = useState('ALL');
+
+  const uniqueHistoryTickers = React.useMemo(() => {
+    const set = new Set<string>();
+    transactions.forEach(t => { if (t.ticker) set.add(t.ticker.toUpperCase()); });
+    return Array.from(set).sort();
+  }, [transactions]);
+
+  const uniqueHistoryBrokers = React.useMemo(() => {
+    const set = new Set<string>();
+    transactions.forEach(t => set.add(t.broker || 'Thunder'));
+    return Array.from(set).sort();
+  }, [transactions]);
+
+  // Only Buy transactions to get real stock-purchase brokers (no Deposit/Withdraw noise)
+  const uniquePortfolioBrokers = React.useMemo(() => {
+    const set = new Set<string>();
+    transactions
+      .filter(t => t.type === 'Buy' && t.ticker)
+      .forEach(t => set.add((t.broker || 'Thunder').trim()));
+    return Array.from(set).sort();
+  }, [transactions]);
+
+  const filteredTransactions = React.useMemo(() => {
+    return transactions.filter(tx => {
+      if (historySearch.trim()) {
+        const query = historySearch.toLowerCase().trim();
+        const tickerMatch = tx.ticker ? tx.ticker.toLowerCase().includes(query) : false;
+        const typeMatch = tx.type.toLowerCase().includes(query);
+        const brokerMatch = (tx.broker || 'Thunder').toLowerCase().includes(query);
+        const dateMatch = tx.date.includes(query);
+        if (!tickerMatch && !typeMatch && !brokerMatch && !dateMatch) return false;
+      }
+      if (historyTypeFilter !== 'ALL' && tx.type !== historyTypeFilter) {
+        return false;
+      }
+      if (historyTickerFilter !== 'ALL') {
+        if (!tx.ticker || tx.ticker.toUpperCase() !== historyTickerFilter.toUpperCase()) {
+          return false;
+        }
+      }
+      if (historyBrokerFilter !== 'ALL') {
+        const b = tx.broker || 'Thunder';
+        if (b.toLowerCase() !== historyBrokerFilter.toLowerCase()) {
+          return false;
+        }
+      }
+      if (historyDateFrom && tx.date < historyDateFrom) {
+        return false;
+      }
+      if (historyDateTo && tx.date > historyDateTo) {
+        return false;
+      }
+      return true;
+    });
+  }, [transactions, historySearch, historyTypeFilter, historyTickerFilter, historyBrokerFilter, historyDateFrom, historyDateTo]);
+
+  const sortedTransactions = React.useMemo(() => {
+    return [...filteredTransactions].sort((a: any, b: any) => {
+      const key = historySort.key;
+      const dir = historySort.direction === 'asc' ? 1 : -1;
+
+      let valA: any;
+      let valB: any;
+
+      if (key === 'total') {
+        valA = (a.quantity ? (a.quantity * a.price) : a.price) + (a.fees || 0);
+        valB = (b.quantity ? (b.quantity * b.price) : b.price) + (b.fees || 0);
+      } else if (key === 'quantity' || key === 'price' || key === 'fees') {
+        valA = a[key] ?? 0;
+        valB = b[key] ?? 0;
+      } else if (key === 'broker') {
+        valA = (a.broker || 'Thunder').toLowerCase();
+        valB = (b.broker || 'Thunder').toLowerCase();
+      } else if (key === 'ticker') {
+        valA = (a.ticker || '').toLowerCase();
+        valB = (b.ticker || '').toLowerCase();
+      } else {
+        valA = a[key] ?? '';
+        valB = b[key] ?? '';
+      }
+
+      if (typeof valA === 'number' && typeof valB === 'number') {
+        return (valA - valB) * dir;
+      }
+      if (valA < valB) return -1 * dir;
+      if (valA > valB) return 1 * dir;
+      return 0;
+    });
+  }, [filteredTransactions, historySort]);
+
+  const hasHistoryFilters = Boolean(
+    historySearch || 
+    historyTypeFilter !== 'ALL' || 
+    historyTickerFilter !== 'ALL' || 
+    historyBrokerFilter !== 'ALL' || 
+    historyDateFrom || 
+    historyDateTo
+  );
+
+  const resetHistoryFilters = () => {
+    setHistorySearch('');
+    setHistoryTypeFilter('ALL');
+    setHistoryTickerFilter('ALL');
+    setHistoryBrokerFilter('ALL');
+    setHistoryDateFrom('');
+    setHistoryDateTo('');
+  };
+
+  const handleHistorySort = (key: string) => {
+    setHistorySort(prev => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      return { key, direction: key === 'date' ? 'desc' : 'asc' };
+    });
+  };
   const [aiSettings, setAiSettings] = useState({
     provider: 'gemini',
     model: 'gemini-2.0-flash',
@@ -280,7 +540,7 @@ function App() {
     goldKarat: 21,
     goldPrice21k: 6502.73,
   });
-  const [liveGoldPrice21k, setLiveGoldPrice21k] = useState<number | null>(null);
+  const [_liveGoldPrice21k, setLiveGoldPrice21k] = useState<number | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -416,6 +676,7 @@ function App() {
     let realizedPnL = 0;
     let dividendsCollected = 0;
     const dividendsByTicker: Record<string, number> = {};
+    const stockDividendsByTicker: Record<string, number> = {};
     const holdingsMap: Record<string, { shares: number; totalCost: number }> = {};
     // Per-ticker realized trade ledger (survives even after a position is fully exited)
     const realizedMap: Record<string, {
@@ -450,6 +711,23 @@ function App() {
           dividendsCollected += tx.price;
           if (tx.ticker) {
             dividendsByTicker[tx.ticker] = (dividendsByTicker[tx.ticker] || 0) + tx.price;
+          }
+          break;
+        case 'StockDividend':
+          // Stock dividend: receive free shares — no cash changes, no cost basis added.
+          // This correctly handles the post-dividend price drop: avg cost per share decreases
+          // proportionally (same total cost spread over more shares), matching the lower market price.
+          if (tx.ticker && tx.quantity) {
+            if (!holdingsMap[tx.ticker]) holdingsMap[tx.ticker] = { shares: 0, totalCost: 0 };
+            holdingsMap[tx.ticker].shares += tx.quantity;
+            // totalCost intentionally NOT increased — free shares at zero cost basis
+            stockDividendsByTicker[tx.ticker] = (stockDividendsByTicker[tx.ticker] || 0) + tx.quantity;
+
+            // Update the realized ledger so these shares are tracked for future sell calculations
+            const r = ensureRealized(tx.ticker);
+            r.buyShares += tx.quantity;
+            // grossBuy and buyCost NOT increased — keeps avg buy price accurate for the cash-paid shares
+            if (!r.firstBuyDate || tx.date < r.firstBuyDate) r.firstBuyDate = tx.date;
           }
           break;
         case 'Buy':
@@ -512,7 +790,7 @@ function App() {
 
     // Build closed / partially-exited positions from the realized ledger.
     // Any ticker that has ever been sold gets a record, even if it no longer appears in holdings.
-    const closedPositions = Object.entries(realizedMap)
+    const closedPositions: ClosedPosition[] = Object.entries(realizedMap)
       .filter(([_, r]) => r.soldShares > 0)
       .map(([ticker, r]) => {
         const meta = marketData[ticker] || {};
@@ -521,6 +799,13 @@ function App() {
         const dividends = dividendsByTicker[ticker] || 0;
         const avgBuyPrice = r.buyShares > 0 ? r.grossBuy / r.buyShares : 0;
         const avgSellPrice = r.soldShares > 0 ? r.grossProceeds / r.soldShares : 0;
+        const livePrice = meta.price || 0;
+        const postSellDiffPct = (livePrice > 0 && avgSellPrice > 0)
+          ? ((livePrice - avgSellPrice) / avgSellPrice) * 100
+          : 0;
+        const postSellAmountDiff = (livePrice > 0 && avgSellPrice > 0)
+          ? (livePrice - avgSellPrice) * r.soldShares
+          : 0;
         const realizedPnLPct = r.costBasisSold > 0 ? (r.realizedPnL / r.costBasisSold) * 100 : 0;
         const holdingDays = (r.firstBuyDate && r.lastSellDate)
           ? Math.max(0, Math.round((new Date(r.lastSellDate).getTime() - new Date(r.firstBuyDate).getTime()) / 86400000))
@@ -532,6 +817,9 @@ function App() {
           soldShares: r.soldShares,
           avgBuyPrice,
           avgSellPrice,
+          livePrice,
+          postSellDiffPct,
+          postSellAmountDiff,
           costBasisSold: r.costBasisSold,
           netProceeds: r.netProceeds,
           realizedPnL: r.realizedPnL,
@@ -548,16 +836,73 @@ function App() {
       })
       .sort((a, b) => new Date(b.lastSellDate).getTime() - new Date(a.lastSellDate).getTime());
 
-    return { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker, closedPositions };
+    return { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker, stockDividendsByTicker, closedPositions };
   };
 
-  const { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker, closedPositions } = calculatePortfolio();
+  const { holdings, walletBalance, totalDeposited, realizedPnL, dividendsCollected, dividendsByTicker, stockDividendsByTicker, closedPositions } = calculatePortfolio();
 
-  // --- P&L EXTREMES CALCULATION (Historical peaks/troughs for current active position run) ---
+  // Broker-filtered holdings for the Active Holdings table
+  const displayedHoldings = React.useMemo(() => {
+    if (portfolioBrokerFilter === 'ALL') return holdings;
+    // Recompute shares/cost using only the selected broker's Buy/Sell transactions
+    const brokerTx = transactions.filter(t =>
+      (t.type === 'Buy' || t.type === 'Sell') &&
+      (t.broker || 'Thunder').toLowerCase() === portfolioBrokerFilter.toLowerCase()
+    ).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    const map: Record<string, { shares: number; totalCost: number }> = {};
+    brokerTx.forEach(tx => {
+      if (!tx.ticker || !tx.quantity) return;
+      if (!map[tx.ticker]) map[tx.ticker] = { shares: 0, totalCost: 0 };
+      if (tx.type === 'Buy') {
+        const cost = tx.quantity * tx.price + (tx.fees || 0);
+        map[tx.ticker].shares += tx.quantity;
+        map[tx.ticker].totalCost += cost;
+      } else if (tx.type === 'Sell') {
+        const h = map[tx.ticker];
+        if (h && h.shares > 0) {
+          const avgCost = h.totalCost / h.shares;
+          h.totalCost -= avgCost * tx.quantity;
+          h.shares -= tx.quantity;
+        }
+      }
+    });
+
+    // Build a fast lookup of globally-open tickers (avoids ghost positions
+    // where sells were done via a different broker than the buys).
+    const globalOpenTickers = new Set(holdings.map(h => h.ticker));
+
+    return Object.entries(map)
+      .filter(([ticker, d]) => d.shares > 0.0001 && globalOpenTickers.has(ticker))
+      .map(([ticker, d]) => {
+        // Use marketData directly so tickers that are globally closed
+        // (not in the full holdings array) still show company name & live price
+        const meta = marketData[ticker] || {};
+        // Fallback chain: marketData → active holding → avg cost
+        const livePrice = meta.price || holdings.find(h => h.ticker === ticker)?.livePrice || (d.totalCost / d.shares);
+        return {
+          ticker,
+          company: meta.name || '...',
+          sector: meta.sector || '...',
+          shares: d.shares,
+          avgCost: d.totalCost / d.shares,
+          totalCost: d.totalCost,
+          livePrice,
+          logoid: meta.logoid,
+        };
+      });
+  }, [holdings, transactions, portfolioBrokerFilter, marketData]);
+
+  // --- P&L EXTREMES CALCULATION (Historical peaks/troughs up to day before current date) ---
   const computePnlExtremes = async () => {
     if (holdings.length === 0 || transactions.length === 0) return;
-    const results: Record<string, { maxPnl: number; maxPnlDate: string; maxPnlPct: number; minPnl: number; minPnlDate: string; minPnlPct: number }> = {};
-    const today = new Date().toISOString().split('T')[0];
+    const results: Record<string, { maxPnl: number; maxPnlDate: string; maxPnlPct: number; maxPnlPrice: number; minPnl: number; minPnlDate: string; minPnlPct: number; minPnlPrice: number }> = {};
+    
+    // Day before current date (yesterday)
+    const now = new Date();
+    const yesterdayObj = new Date(now);
+    yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+    const yesterday = yesterdayObj.toISOString().split('T')[0];
 
     await Promise.all(holdings.map(async (h) => {
       try {
@@ -598,21 +943,24 @@ function App() {
         const histRange = daysSinceBuy <= 30 ? '1m' : daysSinceBuy <= 90 ? '3m' : daysSinceBuy <= 180 ? '6m' : daysSinceBuy <= 365 ? '1y' : '5y';
 
         let maxPnl = -Infinity;
-        let maxPnlDate = currentRunStartDate;
+        let maxPnlDate = currentRunStartDate <= yesterday ? currentRunStartDate : yesterday;
         let maxPnlPct = 0;
+        let maxPnlPrice = 0;
         let minPnl = Infinity;
-        let minPnlDate = currentRunStartDate;
+        let minPnlDate = currentRunStartDate <= yesterday ? currentRunStartDate : yesterday;
         let minPnlPct = 0;
+        let minPnlPrice = 0;
 
         try {
           const res = await fetch(`/api/history?symbol=${h.ticker}&range=${histRange}`);
           const history = await res.json();
 
           if (Array.isArray(history) && history.length > 0) {
-            // Filter history: only dates >= currentRunStartDate AND strictly BEFORE today (< today)
+            // Filter history: only valid dates >= currentRunStartDate AND <= yesterday (day before current)
             const relevantHistory = history.filter((p: any) => {
-              const pDate = p.date.split('T')[0];
-              return pDate >= currentRunStartDate && pDate < today;
+              if (!p || p.close == null || isNaN(p.close)) return false;
+              const pDate = p.date ? p.date.split('T')[0] : '';
+              return pDate >= currentRunStartDate && pDate <= yesterday;
             });
 
             relevantHistory.forEach((point: any) => {
@@ -642,11 +990,13 @@ function App() {
                   maxPnl = pnl;
                   maxPnlDate = pDate;
                   maxPnlPct = pnlPct;
+                  maxPnlPrice = point.close;
                 }
                 if (pnl < minPnl) {
                   minPnl = pnl;
                   minPnlDate = pDate;
                   minPnlPct = pnlPct;
+                  minPnlPrice = point.close;
                 }
               }
             });
@@ -655,23 +1005,27 @@ function App() {
           console.warn(`History fetch failed for ${h.ticker}`, fetchErr);
         }
 
-        // If no history prior to today exists (e.g. bought today), default to 0 baseline on currentRunStartDate
+        // Default baseline if no points evaluated prior to today
         if (maxPnl === -Infinity || minPnl === Infinity) {
           maxPnl = 0;
-          maxPnlDate = currentRunStartDate;
+          maxPnlDate = currentRunStartDate <= yesterday ? currentRunStartDate : yesterday;
           maxPnlPct = 0;
+          maxPnlPrice = h.livePrice || 0;
           minPnl = 0;
-          minPnlDate = currentRunStartDate;
+          minPnlDate = currentRunStartDate <= yesterday ? currentRunStartDate : yesterday;
           minPnlPct = 0;
+          minPnlPrice = h.livePrice || 0;
         }
 
         results[h.ticker] = {
           maxPnl,
           maxPnlDate,
           maxPnlPct,
+          maxPnlPrice,
           minPnl,
           minPnlDate,
-          minPnlPct
+          minPnlPct,
+          minPnlPrice
         };
       } catch (e) {
         console.error(`Failed to compute P&L extremes for ${h.ticker}`, e);
@@ -689,143 +1043,51 @@ function App() {
     }
   }, [holdingsKey, transactions.length]);
 
-  // Compute ATH tickers as a derived value (NOT state) to avoid re-render loops
-  const athTickers: string[] = [];
-  if (Object.keys(pnlExtremes).length > 0 && holdings.length > 0) {
-    holdings.forEach(h => {
-      const extreme = pnlExtremes[h.ticker];
-      if (!extreme) return;
-      const value = h.shares * h.livePrice;
-      const pnl = value - h.totalCost;
-      if (pnl > extreme.maxPnl) {
-        athTickers.push(h.ticker);
-      }
-    });
-  }
+  // Compute Benchmark Alpha vs EGX30 for Total Return card
+  useEffect(() => {
+    const buyTxDates = (transactions || [])
+      .filter(t => t.type === 'Buy' && t.date)
+      .map(t => t.date)
+      .sort((a, b) => a.localeCompare(b));
+    const allTxDates = (transactions || []).map(t => t.date).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const jDate = buyTxDates.length > 0 ? buyTxDates[0] : (allTxDates.length > 0 ? allTxDates[0] : '');
 
-  // --- ATH AUDIO & VOICE ALERT ---
-  const playATHAlert = () => {
-    if (athAlertPlaying || athTickers.length === 0) return;
-    try {
-      // 1. Text-to-speech voice notification
-      const speakNotification = () => {
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-          // Cancel ongoing speech to avoid queue buildup
-          window.speechSynthesis.cancel();
-          const tickersStr = athTickers.join(', ');
-          const utterance = new SpeechSynthesisUtterance(`Warning! All-time high profit and loss exceeded for ${tickersStr}`);
-          utterance.rate = 0.9;
-          utterance.pitch = 1.0;
-          
-          if (window.speechSynthesis.getVoices) {
-            const voices = window.speechSynthesis.getVoices();
-            const englishVoice = voices.find(v => v.lang.startsWith('en'));
-            if (englishVoice) {
-              utterance.voice = englishVoice;
-            }
+    if (!jDate) return;
+
+    const days = Math.max(1, Math.ceil((Date.now() - new Date(jDate).getTime()) / (1000 * 60 * 60 * 24)));
+    const range = days <= 30 ? '1m' : days <= 90 ? '3m' : days <= 180 ? '6m' : days <= 365 ? '1y' : '5y';
+
+    const totalMarketValue = holdings.reduce((sum, h) => sum + (h.shares * h.livePrice), 0);
+    const totalInvested = holdings.reduce((sum, h) => sum + h.totalCost, 0);
+    const totalPnL = totalMarketValue - totalInvested;
+    const uPnL = totalPnL || 0;
+    const rPnL = realizedPnL || 0;
+    const divCol = dividendsCollected || 0;
+    const combinedTotalReturn = uPnL + rPnL + divCol;
+    const baseCap = (totalInvested && totalInvested > 0) ? totalInvested : (totalDeposited || 0);
+    const totReturnPct = baseCap > 0 ? (combinedTotalReturn / baseCap) * 100 : 0;
+
+    fetch(`/api/history?symbol=%5EEGX30&range=${range}`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          const startPt = data.find((p: any) => p.date.split('T')[0] >= jDate) || data[0];
+          const lastPt = data[data.length - 1];
+          if (startPt && lastPt && startPt.close > 0) {
+            const egxReturn = ((lastPt.close - startPt.close) / startPt.close) * 100;
+            setEgx30Alpha(totReturnPct - egxReturn);
+            setEgx30Return(egxReturn);
           }
-          window.speechSynthesis.speak(utterance);
         }
-      };
+      })
+      .catch(e => console.error('Failed to fetch EGX30 benchmark for Alpha:', e));
+  }, [holdingsKey, transactions.length, realizedPnL, dividendsCollected, totalDeposited]);
 
-      // 2. Chime sound using AudioContext
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtxClass();
-      athAudioCtxRef.current = ctx;
-
-      if (ctx.state === 'suspended') {
-        ctx.resume().catch(err => console.warn('Could not resume AudioContext directly:', err));
-      }
-
-      const masterGain = ctx.createGain();
-      masterGain.gain.value = 0.3;
-      masterGain.connect(ctx.destination);
-      athGainRef.current = masterGain;
-
-      const playChimeAndVoice = () => {
-        speakNotification();
-
-        const now = ctx.currentTime;
-        // Three-note ascending chime
-        const notes = [523.25, 659.25, 783.99]; // C5, E5, G5
-        notes.forEach((freq, i) => {
-          const osc = ctx.createOscillator();
-          const noteGain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.value = freq;
-          noteGain.gain.setValueAtTime(0, now + i * 0.15);
-          noteGain.gain.linearRampToValueAtTime(0.4, now + i * 0.15 + 0.05);
-          noteGain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.15 + 0.5);
-          osc.connect(noteGain);
-          noteGain.connect(masterGain);
-          osc.start(now + i * 0.15);
-          osc.stop(now + i * 0.15 + 0.6);
-        });
-      };
-
-      playChimeAndVoice();
-      // Repeating interval for continuous chime and voice notification
-      athIntervalRef.current = setInterval(playChimeAndVoice, 6000);
-      setAthAlertPlaying(true);
-    } catch (e) {
-      console.error('Audio alert failed:', e);
+  const fetchLivePrices = async (isManualOrInitial: boolean = true) => {
+    if (!isManualOrInitial && !isEGXMarketOpen()) {
+      console.log('[Periodic Query] EGX Stock Market is OFF (closed). Skipping periodic quote query.');
+      return;
     }
-  };
-
-  const stopATHAlert = () => {
-    if (athIntervalRef.current) {
-      clearInterval(athIntervalRef.current);
-      athIntervalRef.current = null;
-    }
-    if (athAudioCtxRef.current) {
-      athAudioCtxRef.current.close().catch(() => {});
-      athAudioCtxRef.current = null;
-    }
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    // Mark current ATH tickers as acknowledged so alert doesn't re-trigger
-    athTickers.forEach(t => athAlertAcknowledgedRef.current.add(t));
-    setAthAlertPlaying(false);
-  };
-
-  // Re-trigger alert whenever the set of unacknowledged tickers changes, or alert is stopped
-  const athTickersKey = JSON.stringify(athTickers);
-  useEffect(() => {
-    if (athTickers.length === 0) return;
-    const unacknowledged = athTickers.filter(t => !athAlertAcknowledgedRef.current.has(t));
-    if (unacknowledged.length > 0 && !athAlertPlaying) {
-      playATHAlert();
-    }
-  }, [athTickersKey, athAlertPlaying]);
-
-  // Global user gesture listener to automatically unlock/resume AudioContext
-  useEffect(() => {
-    const handleGesture = () => {
-      if (athAudioCtxRef.current && athAudioCtxRef.current.state === 'suspended') {
-        athAudioCtxRef.current.resume().catch(() => {});
-      }
-    };
-    window.addEventListener('click', handleGesture);
-    window.addEventListener('keydown', handleGesture);
-    return () => {
-      window.removeEventListener('click', handleGesture);
-      window.removeEventListener('keydown', handleGesture);
-    };
-  }, []);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (athIntervalRef.current) clearInterval(athIntervalRef.current);
-      if (athAudioCtxRef.current) athAudioCtxRef.current.close().catch(() => {});
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, []);
-
-  const fetchLivePrices = async () => {
     try {
       setIsUpdating(true);
       // Also fetch live Gold & FX to compute 24k Gold per gram in EGP dynamically
@@ -847,8 +1109,13 @@ function App() {
         console.error('Failed to fetch live gold price:', e);
       }
 
+      const soldTickers = (transactions || [])
+        .filter(t => t.type === 'Sell' && t.ticker)
+        .map(t => t.ticker!);
+
       const tickers = Array.from(new Set([
-        ...(transactions || []).filter(t => t.ticker).map(t => `${t.ticker!.trim().toUpperCase()}.CA`),
+        ...(holdings || []).map(h => `${h.ticker.trim().toUpperCase()}.CA`),
+        ...(soldTickers || []).map(t => `${t.trim().toUpperCase()}.CA`),
         ...(watchlist || []).map(t => `${t.trim().toUpperCase()}.CA`)
       ]));
       if (tickers.length === 0) return;
@@ -1004,22 +1271,135 @@ function App() {
   }, [holdings.length]);
 
   useEffect(() => {
-    fetchLivePrices();
-    const interval = setInterval(fetchLivePrices, 60000);
+    fetchLivePrices(true);
+    const interval = setInterval(() => {
+      fetchLivePrices(false);
+    }, 60000);
     return () => clearInterval(interval);
-  }, [transactions, watchlist]); // Reset interval when data changes to ensure latest state is captured
+  }, [holdingsKey, watchlist]); // Reset interval when data changes to ensure latest state is captured
 
   const totalMarketValue = holdings.reduce((sum, h) => sum + (h.shares * h.livePrice), 0);
   const totalInvested = holdings.reduce((sum, h) => sum + h.totalCost, 0);
   const totalPnL = totalMarketValue - totalInvested;
   const totalPnLPercent = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
 
+  // Broker-filtered stats for the top cards
+  const brokerStats = React.useMemo(() => {
+    if (portfolioBrokerFilter === 'ALL') return null;
+
+    // Equity & Unrealized P&L straight from displayedHoldings
+    const bMarketValue = displayedHoldings.reduce((s, h) => s + h.shares * h.livePrice, 0);
+    const bInvested    = displayedHoldings.reduce((s, h) => s + h.totalCost, 0);
+    const bUnrealizedPnL = bMarketValue - bInvested;
+    const bUnrealizedPct = bInvested > 0 ? (bUnrealizedPnL / bInvested) * 100 : 0;
+
+    // Realized P&L: replay only this broker's Buy/Sell transactions
+    const brokerTx = [...transactions]
+      .filter(t => (t.broker || 'Thunder') === portfolioBrokerFilter && (t.type === 'Buy' || t.type === 'Sell'))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    const posMap: Record<string, { shares: number; totalCost: number }> = {};
+    let bRealizedPnL = 0;
+    let bSoldPositions = 0;
+
+    brokerTx.forEach(tx => {
+      if (!tx.ticker || !tx.quantity) return;
+      if (!posMap[tx.ticker]) posMap[tx.ticker] = { shares: 0, totalCost: 0 };
+      if (tx.type === 'Buy') {
+        posMap[tx.ticker].shares += tx.quantity;
+        posMap[tx.ticker].totalCost += tx.quantity * tx.price + (tx.fees || 0);
+      } else if (tx.type === 'Sell') {
+        const p = posMap[tx.ticker];
+        if (p && p.shares > 0) {
+          const avgCost = p.totalCost / p.shares;
+          const proceeds = tx.quantity * tx.price - (tx.fees || 0);
+          bRealizedPnL += proceeds - avgCost * tx.quantity;
+          p.totalCost -= avgCost * tx.quantity;
+          p.shares -= tx.quantity;
+          bSoldPositions++;
+        }
+      }
+    });
+
+    // Dividends: sum dividends for tickers the broker holds (dividends have no broker field)
+    const brokerTickers = new Set(displayedHoldings.map(h => h.ticker));
+    let bDividends = 0;
+    const bDividendsByTicker: Record<string, number> = {};
+    transactions
+      .filter(t => t.type === 'Dividend' && t.ticker && brokerTickers.has(t.ticker))
+      .forEach(t => {
+        bDividends += t.price;
+        bDividendsByTicker[t.ticker!] = (bDividendsByTicker[t.ticker!] || 0) + t.price;
+      });
+
+    // First Buy date for this broker
+    const brokerBuyDates = transactions
+      .filter(t => t.type === 'Buy' && (t.broker || 'Thunder') === portfolioBrokerFilter && t.date)
+      .map(t => t.date)
+      .sort((a, b) => a.localeCompare(b));
+    const bJoinDate = brokerBuyDates[0] || '';
+
+    return {
+      marketValue: bMarketValue,
+      invested: bInvested,
+      unrealizedPnL: bUnrealizedPnL,
+      unrealizedPct: bUnrealizedPct,
+      realizedPnL: bRealizedPnL,
+      soldPositions: bSoldPositions,
+      dividends: bDividends,
+      dividendsByTicker: bDividendsByTicker,
+      joinDate: bJoinDate,
+    };
+  }, [displayedHoldings, transactions, portfolioBrokerFilter]);
+
+  // Card display values: broker-filtered when active, otherwise global
+  const cardMarketValue    = brokerStats?.marketValue    ?? totalMarketValue;
+  const cardInvested       = brokerStats?.invested       ?? totalInvested;
+  const cardUnrealizedPnL  = brokerStats?.unrealizedPnL  ?? totalPnL;
+  const cardUnrealizedPct  = brokerStats?.unrealizedPct  ?? totalPnLPercent;
+  const cardRealizedPnL    = brokerStats?.realizedPnL    ?? realizedPnL;
+  const cardSoldPositions  = brokerStats?.soldPositions  ?? closedPositions.length;
+  const cardDividends      = brokerStats?.dividends      ?? dividendsCollected;
+  const cardDividendsByTicker = brokerStats?.dividendsByTicker ?? dividendsByTicker;
+  const cardJoinDate       = brokerStats?.joinDate       ?? null;
+
+  // Cash actually pulled out of the account (respects the active broker filter), to show
+  // that realized gains were redeployed rather than banked.
+  const cardWithdrawn = (transactions || [])
+    .filter(t => t.type === 'Withdraw' && (portfolioBrokerFilter === 'ALL' || t.broker === portfolioBrokerFilter))
+    .reduce((s, t) => s + Math.abs(t.price ?? 0), 0);
+
+  // Money-weighted return (annualized XIRR) — accounts for WHEN capital was funded,
+  // unlike the simple % which ignores progressive deposits. Global view only.
+  const portfolioXirr = React.useMemo(() => {
+    if (portfolioBrokerFilter !== 'ALL') return null;
+    const asOf = new Date().toISOString().split('T')[0];
+    const terminal = totalMarketValue + walletBalance;
+    if (terminal <= 0) return null;
+    return xirr(buildPortfolioCashflows(transactions, terminal, asOf));
+  }, [transactions, totalMarketValue, walletBalance, portfolioBrokerFilter]);
+
+
   return (
     <div className="app-container">
       <header className="header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <Activity className="text-blue" size={24} />
-          <h2>Thunder Pro <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>EGX LIVE</span></h2>
+          <h2>
+            Thunder Pro 
+            {(() => {
+              const status = getEGXMarketStatusText();
+              return (
+                <span 
+                  className={`badge ${status.isOpen ? 'badge-green' : 'badge-yellow'}`}
+                  style={{ fontSize: '0.65rem', marginLeft: '8px', cursor: 'help' }}
+                  title={status.details}
+                >
+                  {status.label}
+                </span>
+              );
+            })()}
+          </h2>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button className="icon-btn" title="Learning Center" onClick={() => setIsLearningOpen(true)}>
@@ -1028,7 +1408,7 @@ function App() {
           <button className="icon-btn" title="Settings" onClick={() => setIsSettingsOpen(true)}>
             <SettingsIcon size={20} />
           </button>
-          <button className="btn-primary" onClick={fetchLivePrices} disabled={isUpdating}>
+          <button className="btn-primary" onClick={() => fetchLivePrices(true)} disabled={isUpdating}>
             <RefreshCw size={18} className={isUpdating ? 'spinning' : ''} />
             <span>Sync</span>
           </button>
@@ -1095,6 +1475,13 @@ function App() {
         >
           <Sparkles size={16} className="text-yellow" /> Portfolio Health
         </button>
+        <button
+          onClick={() => setActiveTab('advice')}
+          style={{ padding: '1rem 0.5rem', background: 'none', border: 'none',
+            borderBottom: activeTab === 'advice' ? '2px solid var(--color-blue)' : '2px solid transparent',
+            color: activeTab === 'advice' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}
+        ><Target size={16} /> Order Planner</button>
         <button 
           onClick={() => setActiveTab('market')}
           style={{ 
@@ -1190,58 +1577,136 @@ function App() {
       <main className="main-content">
         {activeTab === 'wealth' && <WealthCenter holdings={holdings} transactions={transactions} walletBalance={walletBalance} />}
         {activeTab === 'benchmarks' && <BenchmarkCenter holdings={holdings} transactions={transactions} walletBalance={walletBalance} />}
+        {activeTab === 'advice' && <SwingAdvice holdings={holdings} transactions={transactions} />}
         {activeTab === 'market' && <MarketIntelligence watchlist={watchlist} setWatchlist={setWatchlist} marketData={marketData} analyticsData={analyticsData} setAnalysisStock={setAnalysisStock} shariaTickers={SHARIA_TICKERS} onSelectStock={setSelectedStockTicker} />}
         {activeTab === 'simulator' && <StrategySimulator holdings={holdings} analyticsData={analyticsData} totalMarketValue={totalMarketValue} />}
-        {activeTab === 'health' && <PerformanceDashboard transactions={transactions} holdings={holdings} analyticsData={analyticsData} walletBalance={walletBalance} marketData={marketData} />}
+        {activeTab === 'health' && (
+          <>
+            <ConcentrationPanel
+              holdings={holdings}
+              clusterMap={clusterMap} setClusterMap={setClusterMap}
+              cpiRate={cpiRate} setCpiRate={setCpiRate}
+              cashYield={cashYield} setCashYield={setCashYield}
+            />
+            <PerformanceDashboard transactions={transactions} holdings={holdings} analyticsData={analyticsData} walletBalance={walletBalance} marketData={marketData} />
+          </>
+        )}
         {activeTab === 'holdingHistory' && <HoldingHistory holdings={holdings} analyticsData={analyticsData} transactions={transactions} />}
 
         {activeTab === 'portfolio' && (
           <>
             <div className="top-cards-row">
+              {/* Equity */}
               <div className="card" style={{ borderLeft: '4px solid var(--color-blue)' }}>
                 <div className="card-header"><span className="card-title text-blue">Equity</span><Wallet size={20} className="text-blue" /></div>
-                <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {totalMarketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
-                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Basis EGP {totalInvested.toLocaleString()}</p>
+                <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {cardMarketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Basis EGP {cardInvested.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
               </div>
-              <div className="card" style={{ borderLeft: `4px solid ${totalPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)'}` }}>
-                <div className="card-header"><span className="card-title" style={{ color: totalPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>Unrealized P&L</span>{totalPnL >= 0 ? <ArrowUpRight size={20} className="text-green" /> : <ArrowDownRight size={20} className="text-red" />}</div>
-                <h2 className="mono" style={{ fontSize: '2rem', color: totalPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{totalPnL >= 0 ? '+' : ''}{totalPnL.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
-                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{totalPnLPercent.toFixed(2)}% Performance</p>
+
+              {/* Unrealized P&L */}
+              <div className="card" style={{ borderLeft: `4px solid ${cardUnrealizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)'}` }}>
+                <div className="card-header"><span className="card-title" style={{ color: cardUnrealizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>Unrealized P&L</span>{cardUnrealizedPnL >= 0 ? <ArrowUpRight size={20} className="text-green" /> : <ArrowDownRight size={20} className="text-red" />}</div>
+                <h2 className="mono" style={{ fontSize: '2rem', color: cardUnrealizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{cardUnrealizedPnL >= 0 ? '+' : ''}{cardUnrealizedPnL.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{cardUnrealizedPct.toFixed(2)}% Performance</p>
               </div>
-              <div className="card" style={{ borderLeft: `4px solid ${realizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)'}` }}>
+
+              {/* Realized P&L */}
+              <div className="card" style={{ borderLeft: `4px solid ${cardRealizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)'}` }}>
                 <div className="card-header">
-                  <span className="card-title" style={{ color: realizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>Realized P&L</span>
-                  {realizedPnL >= 0 ? <TrendingUp size={20} className="text-green" /> : <ArrowDownRight size={20} className="text-red" />}
+                  <span className="card-title" style={{ color: cardRealizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>Realized P&L</span>
+                  {cardRealizedPnL >= 0 ? <TrendingUp size={20} className="text-green" /> : <ArrowDownRight size={20} className="text-red" />}
                 </div>
-                <h2 className="mono" style={{ fontSize: '2rem', color: realizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
-                  {realizedPnL >= 0 ? '+' : ''}EGP {realizedPnL.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                <h2 className="mono" style={{ fontSize: '2rem', color: cardRealizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
+                  {cardRealizedPnL >= 0 ? '+' : ''}EGP {cardRealizedPnL.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </h2>
                 <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                  {closedPositions.length > 0 ? `${closedPositions.length} sold position${closedPositions.length > 1 ? 's' : ''}` : 'No closed sales'}
+                  {cardSoldPositions > 0 ? `${cardSoldPositions} sell transaction${cardSoldPositions > 1 ? 's' : ''}` : 'No closed sales'}
                 </p>
+                {cardRealizedPnL > 0 && (
+                  <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '4px', paddingTop: '4px', borderTop: '1px dashed var(--border-color)' }}
+                     title="Realized gains that were not withdrawn remain deployed as market exposure — they are not banked cash.">
+                    Withdrawn: EGP {cardWithdrawn.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    {' · '}
+                    Redeployed: EGP {Math.max(0, cardRealizedPnL - cardWithdrawn).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </p>
+                )}
               </div>
+
+              {/* Wallet Balance — global only (deposits are cross-broker) */}
               <div className="card" style={{ borderLeft: '4px solid var(--color-yellow)' }}>
                 <div className="card-header"><span className="card-title text-yellow">Wallet Balance</span><DollarSign size={20} className="text-yellow" /></div>
                 <h2 className="mono" style={{ fontSize: '2rem' }}>EGP {walletBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
-                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Available Liquid Cash</p>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                  {portfolioBrokerFilter !== 'ALL' ? 'Portfolio-wide cash' : 'Available Liquid Cash'}
+                </p>
+                {walletBalance > 0 && (() => {
+                  const realDragAnnual = cpiRate - cashYield; // net % lost to inflation per year
+                  const monthlyLoss = walletBalance * (realDragAnnual / 100) / 12;
+                  // Days idle: since most recent Buy/Sell (last time cash was actively deployed)
+                  const deployDates = (transactions || [])
+                    .filter(t => (t.type === 'Buy' || t.type === 'Sell') && t.date)
+                    .map(t => t.date).sort((a, b) => b.localeCompare(a));
+                  let daysIdle = 0;
+                  if (deployDates[0]) {
+                    daysIdle = Math.max(0, Math.round((Date.now() - new Date(deployDates[0] + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)));
+                  }
+                  const lostWhileIdle = monthlyLoss * (daysIdle / 30);
+                  if (realDragAnnual <= 0) return null;
+                  return (
+                    <div style={{ fontSize: '0.72rem', color: '#f97316', marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed var(--border-color)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <div>Earning {cashYield}% · real value −{monthlyLoss.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo at {cpiRate}% CPI</div>
+                      {daysIdle > 0 && (
+                        <div style={{ opacity: 0.9 }}>{daysIdle}d idle · ≈{lostWhileIdle.toLocaleString(undefined, { maximumFractionDigits: 0 })} EGP real value lost</div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
+
+              {/* Dividends */}
               <div className="card" style={{ borderLeft: '4px solid var(--color-green)', background: 'linear-gradient(135deg, rgba(16,185,129,0.07) 0%, transparent 100%)' }}>
                 <div className="card-header"><span className="card-title text-green">Dividends</span><ArrowUpRight size={20} className="text-green" /></div>
-                <h2 className="mono" style={{ fontSize: '2rem', color: 'var(--color-green)' }}>EGP {dividendsCollected.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
+                <h2 className="mono" style={{ fontSize: '2rem', color: 'var(--color-green)' }}>EGP {cardDividends.toLocaleString(undefined, { maximumFractionDigits: 0 })}</h2>
                 <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                  {Object.keys(dividendsByTicker).length > 0
-                    ? `${Object.keys(dividendsByTicker).length} source${Object.keys(dividendsByTicker).length > 1 ? 's' : ''}`
+                  {Object.keys(cardDividendsByTicker).length > 0
+                    ? `${Object.keys(cardDividendsByTicker).length} source${Object.keys(cardDividendsByTicker).length > 1 ? 's' : ''}`
                     : 'No dividends recorded'}
                 </p>
-              </div>
-              <div className="card" style={{ borderLeft: `4px solid ${((totalPnL || 0) + (realizedPnL || 0) + (dividendsCollected || 0)) >= 0 ? 'var(--color-green)' : 'var(--color-red)'}`, background: 'gradient(135deg, rgba(59,130,246,0.05) 0%, transparent 100%)' }}>
                 {(() => {
-                  const uPnL = totalPnL || 0;
-                  const rPnL = realizedPnL || 0;
-                  const divCol = dividendsCollected || 0;
+                  const totalStockDivShares = Object.values(stockDividendsByTicker).reduce((s, v) => s + v, 0);
+                  if (totalStockDivShares <= 0) return null;
+                  const stockDivSources = Object.keys(stockDividendsByTicker).length;
+                  return (
+                    <p style={{ fontSize: '0.8rem', color: 'var(--color-blue)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      📈 +{totalStockDivShares.toLocaleString()} shares received ({stockDivSources} stock div{stockDivSources > 1 ? 's' : ''})
+                    </p>
+                  );
+                })()}
+              </div>
+
+              {/* Total Return */}
+              <div className="card" style={{ borderLeft: `4px solid ${((cardUnrealizedPnL || 0) + (cardRealizedPnL || 0) + (cardDividends || 0)) >= 0 ? 'var(--color-green)' : 'var(--color-red)'}`, background: 'gradient(135deg, rgba(59,130,246,0.05) 0%, transparent 100%)' }}>
+                {(() => {
+                  const uPnL = cardUnrealizedPnL || 0;
+                  const rPnL = cardRealizedPnL || 0;
+                  const divCol = cardDividends || 0;
                   const combinedTotalReturn = uPnL + rPnL + divCol;
-                  const baseCap = (totalInvested && totalInvested > 0) ? totalInvested : (totalDeposited || 0);
+                  const baseCap = (cardInvested && cardInvested > 0) ? cardInvested : (totalDeposited || 0);
                   const totalReturnPct = baseCap > 0 ? (combinedTotalReturn / baseCap) * 100 : 0;
+
+                  // Join date: broker-specific or global
+                  const joinDate = cardJoinDate ?? (() => {
+                    const buyTxDates = (transactions || []).filter(t => t.type === 'Buy' && t.date).map(t => t.date).sort((a, b) => a.localeCompare(b));
+                    const allTxDates = (transactions || []).map(t => t.date).filter(Boolean).sort((a, b) => a.localeCompare(b));
+                    return buyTxDates[0] ?? allTxDates[0] ?? '';
+                  })();
+
+                  let daysSinceJoined = 0;
+                  if (joinDate) {
+                    const joinTime = new Date(joinDate + 'T00:00:00').getTime();
+                    daysSinceJoined = Math.max(1, Math.round((Date.now() - joinTime) / (1000 * 60 * 60 * 24)));
+                  }
+
                   return (
                     <>
                       <div className="card-header">
@@ -1254,18 +1719,108 @@ function App() {
                       <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                         {totalReturnPct >= 0 ? '+' : ''}{totalReturnPct.toFixed(2)}% Overall (Unrealized + Realized + Dividends)
                       </p>
+                      {portfolioXirr !== null && (
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '2px 0 0' }}
+                           title="Money-weighted annualized return (XIRR). Unlike the simple %, this accounts for when capital was actually deployed — progressive deposits since April are weighted by their timing. Annualizing a sub-year window extrapolates heavily and overstates a durable rate.">
+                          Money-weighted: <strong className="mono" style={{ color: portfolioXirr >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{portfolioXirr >= 0 ? '+' : ''}{(portfolioXirr * 100).toFixed(1)}%/yr</strong> <span style={{ opacity: 0.7 }}>(XIRR{daysSinceJoined < 365 ? `, annualized from ${daysSinceJoined}d` : ''})</span>
+                        </p>
+                      )}
+                      {joinDate && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', opacity: 0.9, marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed var(--border-color)', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{portfolioBrokerFilter !== 'ALL' ? `${portfolioBrokerFilter} since:` : 'Joined Market:'}</span>
+                            <strong className="mono" style={{ color: 'var(--text-primary)' }}>
+                              {new Date(joinDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} ({daysSinceJoined}d)
+                            </strong>
+                          </div>
+                          {portfolioBrokerFilter === 'ALL' && (
+                            <>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>Alpha vs EGX30:</span>
+                                <strong className="mono" style={{ color: egx30Alpha !== null ? (egx30Alpha >= 0 ? 'var(--color-green)' : 'var(--color-red)') : 'var(--text-secondary)' }}>
+                                  {egx30Alpha !== null ? `${egx30Alpha >= 0 ? '+' : ''}${egx30Alpha.toFixed(2)}%` : '—'}
+                                </strong>
+                              </div>
+                              {egx30Return !== null && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.85 }}>
+                                  <span>EGX30 same window:</span>
+                                  <strong className="mono" style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>
+                                    {egx30Return >= 0 ? '+' : ''}{egx30Return.toFixed(2)}%
+                                  </strong>
+                                </div>
+                              )}
+                              {egx30Alpha !== null && daysSinceJoined < 365 && (
+                                <div style={{ fontSize: '0.68rem', color: '#f97316', opacity: 0.95, fontStyle: 'italic', marginTop: '1px' }}>
+                                  Over {daysSinceJoined}d in one market regime — too short to indicate skill.
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {combinedTotalReturn > 0 && (() => {
+                        const parts = [
+                          { label: 'Unrealized', val: uPnL, color: 'var(--color-blue)' },
+                          { label: 'Realized', val: rPnL, color: 'var(--color-green)' },
+                          { label: 'Dividends', val: divCol, color: 'var(--color-yellow)' },
+                        ].filter(p => p.val > 0);
+                        const totalPos = parts.reduce((s, p) => s + p.val, 0) || 1;
+                        const unrealizedShare = Math.round((Math.max(0, uPnL) / totalPos) * 100);
+                        return (
+                          <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed var(--border-color)' }}>
+                            <div style={{ display: 'flex', height: '7px', borderRadius: '4px', overflow: 'hidden', background: 'var(--bg-card)' }}>
+                              {parts.map(p => (
+                                <div key={p.label} title={`${p.label}: ${p.val.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} style={{ width: `${(p.val / totalPos) * 100}%`, background: p.color }} />
+                              ))}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span><strong style={{ color: unrealizedShare >= 70 ? '#f97316' : 'var(--text-primary)' }}>{unrealizedShare}% unrealized</strong> · not yet banked</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </>
                   );
                 })()}
               </div>
             </div>
 
-
-
             <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 0 }}>
-              <div className="card-header" style={{ padding: '0.85rem 1.25rem', marginBottom: 0, borderBottom: '1px solid var(--border-color)' }}>
-                <h3 className="card-title" style={{ fontSize: '1.05rem', margin: 0 }}>Active Holdings</h3>
+              <div className="card-header" style={{ padding: '0.85rem 1.25rem', marginBottom: 0, borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <h3 className="card-title" style={{ fontSize: '1.05rem', margin: 0, flex: '1 1 auto' }}>Active Holdings</h3>
                 {staleData && <div className="badge badge-yellow" style={{ fontSize: '0.7rem' }}><AlertTriangle size={12} /> Prices Stale</div>}
+                {/* Broker Filter */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Broker:</label>
+                  <select
+                    value={portfolioBrokerFilter}
+                    onChange={e => setPortfolioBrokerFilter(e.target.value)}
+                    style={{
+                      fontSize: '0.78rem',
+                      padding: '3px 8px',
+                      background: '#1e2130',
+                      color: '#e2e8f0',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      outline: 'none',
+                    }}
+                  >
+                    <option value="ALL" style={{ background: '#1e2130', color: '#e2e8f0' }}>All Brokers</option>
+                    {uniquePortfolioBrokers.map(b => (
+                      <option key={b} value={b} style={{ background: '#1e2130', color: '#e2e8f0' }}>{b}</option>
+                    ))}
+                  </select>
+                  {portfolioBrokerFilter !== 'ALL' && (
+                    <button
+                      onClick={() => setPortfolioBrokerFilter('ALL')}
+                      title="Clear broker filter"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', padding: '2px' }}
+                    >
+                      <FilterX size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
               <div style={{ overflowX: 'auto' }}>
               <table className="data-table">
@@ -1280,16 +1835,18 @@ function App() {
                     <th style={{ textAlign: 'right' }}>Market Value</th>
                     <th style={{ textAlign: 'right' }}>Unrealized P&L</th>
                     <th style={{ textAlign: 'right' }}>Realized P&L</th>
-                    <th style={{ textAlign: 'right' }}>Max P&L ▲</th>
-                    <th style={{ textAlign: 'right' }}>Min P&L ▼</th>
+                    <th style={{ textAlign: 'right' }} title="Highest historical P&L achieved (stock price at peak in brackets)">Max P&L ▲</th>
+                    <th style={{ textAlign: 'right' }} title="Lowest historical P&L achieved (stock price at trough in brackets)">Min P&L ▼</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {getSortedHoldings(holdings).map(h => {
+                  {getSortedHoldings(displayedHoldings).map(h => {
                     const value = h.shares * h.livePrice;
                     const pnl = value - h.totalCost;
                     const pnlPct = h.totalCost > 0 ? (pnl / h.totalCost) * 100 : 0;
-                    const isNewPeak = pnlExtremes[h.ticker] && pnl > pnlExtremes[h.ticker].maxPnl;
+                    
+                    const extreme = pnlExtremes[h.ticker];
+                    const isNewPeak = extreme && pnl > extreme.maxPnl;
                     const closedInfo = closedPositions.find(p => p.ticker === h.ticker);
                     const stockRealized = closedInfo ? closedInfo.realizedPnL : 0;
                     return (
@@ -1307,24 +1864,32 @@ function App() {
                         <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{h.totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{h.livePrice.toFixed(2)}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                        <td className="mono" style={{ textAlign: 'right', color: isNewPeak ? '#facc15' : pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>
-                          <div>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                        <td className="mono" style={{ textAlign: 'right', color: isNewPeak ? '#facc15' : pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: isNewPeak ? 700 : 400 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                            {isNewPeak && <span style={{ fontSize: '0.62rem', background: 'rgba(250,204,21,0.2)', color: '#facc15', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>NEW MAX ★</span>}
+                            <span>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                          </div>
                           <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>{pnl >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%</div>
                         </td>
                         <td className="mono" style={{ textAlign: 'right', color: stockRealized > 0 ? 'var(--color-green)' : stockRealized < 0 ? 'var(--color-red)' : 'var(--text-secondary)' }}>
                           {stockRealized !== 0 ? `${stockRealized >= 0 ? '+' : ''}${stockRealized.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>
-                          {pnlExtremes[h.ticker] ? (
+                          {extreme ? (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                              <span style={{ color: pnlExtremes[h.ticker].maxPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 600, fontSize: '0.85rem' }}>
-                                {pnlExtremes[h.ticker].maxPnl >= 0 ? '+' : ''}{pnlExtremes[h.ticker].maxPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              <span style={{ color: extreme.maxPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 600, fontSize: '0.85rem' }}>
+                                {extreme.maxPnl >= 0 ? '+' : ''}{extreme.maxPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                {extreme.maxPnlPrice != null && extreme.maxPnlPrice > 0 && (
+                                  <span style={{ fontSize: '0.72rem', opacity: 0.85, fontWeight: 400, marginLeft: '3px' }}>
+                                    ({extreme.maxPnlPrice.toFixed(2)})
+                                  </span>
+                                )}
                               </span>
-                              <span style={{ fontSize: '0.65rem', color: pnlExtremes[h.ticker].maxPnlPct >= 0 ? 'var(--color-green)' : 'var(--color-red)', opacity: 0.8 }}>
-                                {pnlExtremes[h.ticker].maxPnlPct >= 0 ? '+' : ''}{pnlExtremes[h.ticker].maxPnlPct.toFixed(2)}%
+                              <span style={{ fontSize: '0.65rem', color: extreme.maxPnlPct >= 0 ? 'var(--color-green)' : 'var(--color-red)', opacity: 0.8 }}>
+                                {extreme.maxPnlPct >= 0 ? '+' : ''}{extreme.maxPnlPct.toFixed(2)}%
                               </span>
                               <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                {new Date(pnlExtremes[h.ticker].maxPnlDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}
+                                {new Date(extreme.maxPnlDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}
                               </span>
                             </div>
                           ) : (
@@ -1332,16 +1897,21 @@ function App() {
                           )}
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>
-                          {pnlExtremes[h.ticker] ? (
+                          {extreme ? (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                              <span style={{ color: pnlExtremes[h.ticker].minPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 600, fontSize: '0.85rem' }}>
-                                {pnlExtremes[h.ticker].minPnl >= 0 ? '+' : ''}{pnlExtremes[h.ticker].minPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              <span style={{ color: extreme.minPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 600, fontSize: '0.85rem' }}>
+                                {extreme.minPnl >= 0 ? '+' : ''}{extreme.minPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                {extreme.minPnlPrice != null && extreme.minPnlPrice > 0 && (
+                                  <span style={{ fontSize: '0.72rem', opacity: 0.85, fontWeight: 400, marginLeft: '3px' }}>
+                                    ({extreme.minPnlPrice.toFixed(2)})
+                                  </span>
+                                )}
                               </span>
-                              <span style={{ fontSize: '0.65rem', color: pnlExtremes[h.ticker].minPnlPct >= 0 ? 'var(--color-green)' : 'var(--color-red)', opacity: 0.8 }}>
-                                {pnlExtremes[h.ticker].minPnlPct >= 0 ? '+' : ''}{pnlExtremes[h.ticker].minPnlPct.toFixed(2)}%
+                              <span style={{ fontSize: '0.65rem', color: extreme.minPnlPct >= 0 ? 'var(--color-green)' : 'var(--color-red)', opacity: 0.8 }}>
+                                {extreme.minPnlPct >= 0 ? '+' : ''}{extreme.minPnlPct.toFixed(2)}%
                               </span>
                               <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                {new Date(pnlExtremes[h.ticker].minPnlDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}
+                                {new Date(extreme.minPnlDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}
                               </span>
                             </div>
                           ) : (
@@ -1355,83 +1925,219 @@ function App() {
               </table>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 1.25rem', borderTop: '1px solid var(--border-color)', fontSize: '0.78rem', color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.1)' }}>
-                <span>Active Positions: <strong>{holdings.length}</strong></span>
-                <button className="btn-secondary" style={{ padding: '4px 12px', fontSize: '0.78rem' }} onClick={() => exportToCSV(holdings, 'portfolio_holdings')}>
+                <span>
+                  Active Positions: <strong>{displayedHoldings.length}</strong>
+                  {portfolioBrokerFilter !== 'ALL' && (
+                    <span style={{ marginLeft: '0.5rem', color: 'var(--color-blue)' }}>
+                      · {portfolioBrokerFilter} only
+                    </span>
+                  )}
+                </span>
+                <button className="btn-secondary" style={{ padding: '4px 12px', fontSize: '0.78rem' }} onClick={() => exportToCSV(displayedHoldings, portfolioBrokerFilter !== 'ALL' ? `portfolio_${portfolioBrokerFilter.toLowerCase()}` : 'portfolio_holdings')}>
                   Export CSV
                 </button>
               </div>
             </div>
-          <UnrealizedPnLHistory transactions={transactions} />
+          <TotalReturnHistory transactions={transactions} />
 
-          {/* Dividend Breakdown Panel */}
-          {Object.keys(dividendsByTicker).length > 0 && (
-            <div className="card" style={{ marginTop: '1.5rem' }}>
-              <div className="card-header" style={{ padding: '1.5rem' }}>
-                <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <ArrowUpRight size={18} className="text-green" /> Dividend Income by Symbol
-                </h3>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                  Total: <strong className="text-green">EGP {dividendsCollected.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-                </span>
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Symbol</th>
-                      <th>Company</th>
-                      <th style={{ textAlign: 'right' }}>Total Received (EGP)</th>
-                      <th style={{ textAlign: 'right' }}>% of Total Dividends</th>
-                      <th style={{ textAlign: 'right' }}>Yield on Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(dividendsByTicker)
-                      .sort(([, a], [, b]) => b - a)
-                      .map(([ticker, amount]) => {
-                        const holding = holdings.find(h => h.ticker === ticker);
-                        const yieldOnCost = holding && holding.totalCost > 0
-                          ? ((amount / holding.totalCost) * 100).toFixed(2)
-                          : '—';
-                        const pct = dividendsCollected > 0
-                          ? ((amount / dividendsCollected) * 100).toFixed(1)
-                          : '0.0';
+          {/* Dividend Breakdown & Projections Panel */}
+          {(holdings.length > 0 || Object.keys(dividendsByTicker).length > 0 || Object.keys(stockDividendsByTicker).length > 0) && (() => {
+            const tickerSet = new Set<string>();
+            holdings.forEach(h => tickerSet.add(h.ticker));
+            Object.keys(dividendsByTicker).forEach(t => tickerSet.add(t));
+            Object.keys(stockDividendsByTicker).forEach(t => tickerSet.add(t));
+
+            const divItems = Array.from(tickerSet).map(ticker => {
+              const holding = holdings.find(h => h.ticker === ticker);
+              const companyMeta = COMPANY_META[ticker];
+              const company = holding?.company || companyMeta?.company || ticker;
+              const amountReceived = dividendsByTicker[ticker] || 0;
+              
+              const divMeta = DIVIDEND_META[ticker] || { frequency: 'Yearly' as const };
+              const frequency = divMeta.frequency;
+
+              let expectedAnnualDividend = 0;
+              let expectedYieldPct = 0;
+
+              if (holding && holding.shares > 0) {
+                const livePrice = holding.livePrice || 0;
+                const fnYield = analyticsData[ticker]?.fundamentals?.dividendYield;
+
+                if (divMeta.defaultDps && divMeta.defaultDps > 0) {
+                  expectedAnnualDividend = holding.shares * divMeta.defaultDps;
+                  expectedYieldPct = livePrice > 0 ? (divMeta.defaultDps / livePrice) * 100 : 0;
+                } else if (fnYield && fnYield > 0 && livePrice > 0) {
+                  expectedYieldPct = fnYield;
+                  expectedAnnualDividend = holding.shares * livePrice * (fnYield / 100);
+                }
+              }
+
+              const yieldOnCost = holding && holding.totalCost > 0 && amountReceived > 0
+                ? ((amountReceived / holding.totalCost) * 100).toFixed(2)
+                : '—';
+
+              const pct = dividendsCollected > 0
+                ? ((amountReceived / dividendsCollected) * 100).toFixed(1)
+                : '0.0';
+
+              return {
+                ticker,
+                company,
+                shares: holding?.shares || 0,
+                amountReceived,
+                pct,
+                yieldOnCost,
+                frequency,
+                notes: divMeta.notes,
+                expectedAnnualDividend,
+                expectedYieldPct,
+                totalCost: holding?.totalCost || 0,
+                isActive: Boolean(holding && holding.shares > 0),
+                stockDivShares: stockDividendsByTicker[ticker] || 0
+              };
+            }).sort((a, b) => {
+              if (b.amountReceived !== a.amountReceived) return b.amountReceived - a.amountReceived;
+              if (b.expectedAnnualDividend !== a.expectedAnnualDividend) return b.expectedAnnualDividend - a.expectedAnnualDividend;
+              return a.ticker.localeCompare(b.ticker);
+            });
+
+            const totalEstAnnualIncome = divItems.reduce((sum, i) => sum + i.expectedAnnualDividend, 0);
+
+            return (
+              <div className="card" style={{ marginTop: '1.5rem' }}>
+                <div className="card-header" style={{ padding: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.15rem' }}>
+                      <Coins size={20} className="text-green" /> Dividend Income & Expected Yield
+                    </h3>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      Track received dividend payouts and projected annual dividends across all your portfolio stocks
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Total Received To Date</span>
+                      <strong className="mono text-green" style={{ fontSize: '1.1rem' }}>
+                        +EGP {dividendsCollected.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                    <div style={{ borderLeft: '1px solid var(--border-color)', height: '30px' }} />
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block' }}>Est. Annual Income</span>
+                      <strong className="mono text-blue" style={{ fontSize: '1.1rem' }}>
+                        EGP {totalEstAnnualIncome.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Symbol</th>
+                        <th>Company</th>
+                        <th style={{ textAlign: 'center' }}>Payout Frequency</th>
+                        <th style={{ textAlign: 'right' }}>Est. Annual Dividend</th>
+                        <th style={{ textAlign: 'right' }}>Total Received (EGP)</th>
+                        <th style={{ textAlign: 'right' }}>Stock Div Shares</th>
+                        <th style={{ textAlign: 'right' }}>% of Total Received</th>
+                        <th style={{ textAlign: 'right' }}>Yield on Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {divItems.map(item => {
+                        const freqBadgeClass = 
+                          item.frequency === 'Yearly' ? 'badge-blue' :
+                          item.frequency === 'Semi-Annually' ? 'badge-green' :
+                          item.frequency === 'Quarterly' ? 'badge-yellow' : 'badge-purple';
+
                         return (
                           <tr 
-                            key={ticker} 
+                            key={item.ticker} 
                             className="clickable-row" 
-                            onClick={() => setSelectedStockTicker(ticker)}
-                            title="Click to view stock history & dividends"
+                            onClick={() => setSelectedStockTicker(item.ticker)}
+                            title="Click to view stock details & dividend history"
                           >
-                            <td style={{ fontWeight: 700 }}>{ticker}</td>
-                            <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                              {holding?.company || '—'}
+                            <td style={{ fontWeight: 700 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {item.ticker}
+                                {!item.isActive && (
+                                  <span style={{ fontSize: '0.65rem', padding: '1px 5px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}>Closed</span>
+                                )}
+                              </div>
                             </td>
-                            <td className="mono" style={{ textAlign: 'right', color: 'var(--color-green)', fontWeight: 600 }}>
-                              +{amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                              {item.company}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <div>
+                                <span className={`badge ${freqBadgeClass}`} style={{ fontSize: '0.75rem' }}>
+                                  {item.frequency}
+                                </span>
+                                {item.notes && (
+                                  <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', display: 'block', marginTop: '3px' }}>
+                                    {item.notes}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="mono" style={{ textAlign: 'right' }}>
+                              {item.expectedAnnualDividend > 0 ? (
+                                <div>
+                                  <span style={{ fontWeight: 600, color: 'var(--color-blue)' }}>
+                                    EGP {item.expectedAnnualDividend.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block' }}>
+                                    ({item.expectedYieldPct.toFixed(1)}% yield)
+                                  </span>
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>—</span>
+                              )}
+                            </td>
+                            <td className="mono" style={{ textAlign: 'right' }}>
+                              {item.amountReceived > 0 ? (
+                                <span style={{ color: 'var(--color-green)', fontWeight: 600 }}>
+                                  +EGP {item.amountReceived.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>EGP 0.00</span>
+                              )}
+                            </td>
+                            <td className="mono" style={{ textAlign: 'right' }}>
+                              {item.stockDivShares > 0 ? (
+                                <span style={{ color: 'var(--color-blue)', fontWeight: 600 }}>
+                                  +{item.stockDivShares.toLocaleString()} shares
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>—</span>
+                              )}
                             </td>
                             <td style={{ textAlign: 'right' }}>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
-                                <div style={{ width: '80px', height: '6px', background: 'var(--border-color)', borderRadius: '3px', overflow: 'hidden' }}>
-                                  <div style={{ width: `${pct}%`, height: '100%', background: 'var(--color-green)', borderRadius: '3px' }} />
+                                <div style={{ width: '70px', height: '6px', background: 'var(--border-color)', borderRadius: '3px', overflow: 'hidden' }}>
+                                  <div style={{ width: `${item.pct}%`, height: '100%', background: 'var(--color-green)', borderRadius: '3px' }} />
                                 </div>
-                                <span className="mono" style={{ fontSize: '0.85rem' }}>{pct}%</span>
+                                <span className="mono" style={{ fontSize: '0.85rem' }}>{item.pct}%</span>
                               </div>
                             </td>
-                            <td className="mono" style={{ textAlign: 'right', color: yieldOnCost !== '—' ? 'var(--color-blue)' : 'var(--text-secondary)' }}>
-                              {yieldOnCost !== '—' ? `${yieldOnCost}%` : '—'}
+                            <td className="mono" style={{ textAlign: 'right', color: item.yieldOnCost !== '—' ? 'var(--color-blue)' : 'var(--text-secondary)' }}>
+                              {item.yieldOnCost !== '—' ? `${item.yieldOnCost}%` : '—'}
                             </td>
                           </tr>
                         );
                       })}
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  <span>* <strong>Payout Frequency</strong>: Based on official EGX dividend distribution policy (Yearly vs. Semi-Annually).</span>
+                  <span>* <strong>Yield on Cost</strong> = Total received dividends ÷ Cost basis of that holding.</span>
+                </div>
               </div>
-              <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                Yield on Cost = Total dividends received ÷ Cost basis of that holding
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Closed Positions (Realized) Panel */}
           {closedPositions.length > 0 && (
@@ -1462,6 +2168,8 @@ function App() {
                       <th style={{ textAlign: 'right' }}>Shares Sold</th>
                       <th style={{ textAlign: 'right' }}>Avg Buy</th>
                       <th style={{ textAlign: 'right' }}>Avg Sell</th>
+                      <th style={{ textAlign: 'right' }} title="Current live market price of the stock">Current Price</th>
+                      <th style={{ textAlign: 'right' }} title="Neutral reference: current price vs the price you sold at. A short-term move after a sale is market noise, not a measure of the exit decision.">Price vs Exit</th>
                       <th style={{ textAlign: 'right' }}>Cost Basis</th>
                       <th style={{ textAlign: 'right' }}>Proceeds</th>
                       <th style={{ textAlign: 'right' }}>Realized P&L</th>
@@ -1489,6 +2197,23 @@ function App() {
                         <td className="mono" style={{ textAlign: 'right' }}>{p.soldShares.toLocaleString()}</td>
                         <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{p.avgBuyPrice.toFixed(2)}</td>
                         <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{p.avgSellPrice.toFixed(2)}</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>
+                          {p.livePrice > 0 ? p.livePrice.toFixed(2) : '—'}
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
+                          {p.livePrice > 0 && p.avgSellPrice > 0 ? (
+                            <div>
+                              <div style={{ fontSize: '0.82rem' }}>
+                                {p.livePrice.toFixed(2)} {p.postSellDiffPct >= 0 ? '+' : ''}{p.postSellDiffPct.toFixed(2)}%
+                              </div>
+                              <div style={{ fontSize: '0.66rem', opacity: 0.8 }}>
+                                sold at {p.avgSellPrice.toFixed(2)}
+                              </div>
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>—</span>
+                          )}
+                        </td>
                         <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{p.costBasisSold.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                         <td className="mono" style={{ textAlign: 'right' }}>{p.netProceeds.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                         <td className="mono" style={{ textAlign: 'right', color: p.realizedPnL >= 0 ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 600 }}>
@@ -1508,7 +2233,7 @@ function App() {
                 </table>
               </div>
               <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-color)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                Realized P&L = Net sale proceeds − average cost basis of the shares sold (fees included). Total Return also folds in dividends collected while the position was held.
+                Realized P&L = Net sale proceeds − average cost basis of sold shares. <strong>Price since exit</strong> is shown as a neutral reference only — a short-term price move after a sale reflects market noise, not the quality of the exit decision.
               </div>
             </div>
           )}
@@ -1516,87 +2241,209 @@ function App() {
         )}
 
         {activeTab === 'history' && (
-          <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <div className="card-header" style={{ padding: '1.5rem' }}>
-              <h3 className="card-title">Transaction History</h3>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => exportToCSV(transactions, 'transaction_history')}>
-                  Export CSV
+          <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="card-header" style={{ padding: '1.5rem 1.5rem 0.5rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h3 className="card-title" style={{ fontSize: '1.25rem' }}>Transaction History</h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Showing <strong>{sortedTransactions.length}</strong> of <strong>{transactions.length}</strong> transactions
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {hasHistoryFilters && (
+                  <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem', color: 'var(--color-red)' }} onClick={resetHistoryFilters}>
+                    <FilterX size={14} /> Clear Filters
+                  </button>
+                )}
+                <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => exportToCSV(sortedTransactions, 'transaction_history')}>
+                  Export CSV ({sortedTransactions.length})
                 </button>
                 <button className="btn-primary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => setIsModalOpen(true)}>
                   <Plus size={16} /> <span>Add New</span>
                 </button>
               </div>
             </div>
-            <div style={{ overflowX: 'auto' }}>
+
+            {/* Filter Toolbar */}
+            <div style={{ padding: '0 1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', alignItems: 'center' }}>
+              {/* Search Bar */}
+              <div style={{ position: 'relative' }}>
+                <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                <input 
+                  type="text" 
+                  className="input-field" 
+                  placeholder="Search ticker, broker..." 
+                  value={historySearch} 
+                  onChange={e => setHistorySearch(e.target.value)} 
+                  style={{ paddingLeft: '30px', fontSize: '0.8rem', height: '34px' }}
+                />
+              </div>
+
+              {/* Type Filter */}
+              <div>
+                <select 
+                  className="input-field" 
+                  value={historyTypeFilter} 
+                  onChange={e => setHistoryTypeFilter(e.target.value)}
+                  style={{ fontSize: '0.8rem', height: '34px' }}
+                >
+                  <option value="ALL">All Types</option>
+                  <option value="Buy">Buy</option>
+                  <option value="Sell">Sell</option>
+                  <option value="Deposit">Deposit</option>
+                  <option value="Withdraw">Withdraw</option>
+                  <option value="Dividend">Dividend</option>
+                </select>
+              </div>
+
+              {/* Symbol / Ticker Filter */}
+              <div>
+                <select 
+                  className="input-field" 
+                  value={historyTickerFilter} 
+                  onChange={e => setHistoryTickerFilter(e.target.value)}
+                  style={{ fontSize: '0.8rem', height: '34px' }}
+                >
+                  <option value="ALL">All Symbols</option>
+                  {uniqueHistoryTickers.map(tk => (
+                    <option key={tk} value={tk}>{tk}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Broker Filter */}
+              <div>
+                <select 
+                  className="input-field" 
+                  value={historyBrokerFilter} 
+                  onChange={e => setHistoryBrokerFilter(e.target.value)}
+                  style={{ fontSize: '0.8rem', height: '34px' }}
+                >
+                  <option value="ALL">All Brokers</option>
+                  {uniqueHistoryBrokers.map(b => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date From */}
+              <div>
+                <input 
+                  type="date" 
+                  className="input-field" 
+                  value={historyDateFrom} 
+                  onChange={e => setHistoryDateFrom(e.target.value)}
+                  placeholder="From Date"
+                  title="Filter transactions from date"
+                  style={{ fontSize: '0.8rem', height: '34px' }}
+                />
+              </div>
+
+              {/* Date To */}
+              <div>
+                <input 
+                  type="date" 
+                  className="input-field" 
+                  value={historyDateTo} 
+                  onChange={e => setHistoryDateTo(e.target.value)}
+                  placeholder="To Date"
+                  title="Filter transactions to date"
+                  style={{ fontSize: '0.8rem', height: '34px' }}
+                />
+              </div>
+            </div>
+
+            {/* Table */}
+            <div style={{ overflowX: 'auto', padding: '0 1.5rem 1.5rem 1.5rem' }}>
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th onClick={() => setHistorySort({ key: 'date', direction: historySort.direction === 'asc' ? 'desc' : 'asc' })} style={{ cursor: 'pointer' }}>
-                      Date {historySort.key === 'date' ? (historySort.direction === 'asc' ? '↑' : '↓') : ''}
+                    <th onClick={() => handleHistorySort('date')} style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      Date {historySort.key === 'date' ? (historySort.direction === 'asc' ? '↑' : '↓') : '↕'}
                     </th>
-                    <th onClick={() => setHistorySort({ key: 'ticker', direction: historySort.direction === 'asc' ? 'desc' : 'asc' })} style={{ cursor: 'pointer' }}>
-                      Symbol {historySort.key === 'ticker' ? (historySort.direction === 'asc' ? '↑' : '↓') : ''}
+                    <th onClick={() => handleHistorySort('ticker')} style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      Symbol {historySort.key === 'ticker' ? (historySort.direction === 'asc' ? '↑' : '↓') : '↕'}
                     </th>
-                    <th>Type</th>
-                    <th>Broker</th>
-                    <th style={{ textAlign: 'right' }}>Qty</th>
-                    <th style={{ textAlign: 'right' }}>Price</th>
-                    <th style={{ textAlign: 'right' }}>Fees</th>
-                    <th style={{ textAlign: 'right' }}>Total</th>
+                    <th onClick={() => handleHistorySort('type')} style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      Type {historySort.key === 'type' ? (historySort.direction === 'asc' ? '↑' : '↓') : '↕'}
+                    </th>
+                    <th onClick={() => handleHistorySort('broker')} style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      Broker {historySort.key === 'broker' ? (historySort.direction === 'asc' ? '↑' : '↓') : '↕'}
+                    </th>
+                    <th onClick={() => handleHistorySort('quantity')} style={{ cursor: 'pointer', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      Qty {historySort.key === 'quantity' ? (historySort.direction === 'asc' ? '↑' : '↓') : '↕'}
+                    </th>
+                    <th onClick={() => handleHistorySort('price')} style={{ cursor: 'pointer', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      Price {historySort.key === 'price' ? (historySort.direction === 'asc' ? '↑' : '↓') : '↕'}
+                    </th>
+                    <th onClick={() => handleHistorySort('fees')} style={{ cursor: 'pointer', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      Fees {historySort.key === 'fees' ? (historySort.direction === 'asc' ? '↑' : '↓') : '↕'}
+                    </th>
+                    <th onClick={() => handleHistorySort('total')} style={{ cursor: 'pointer', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      Total {historySort.key === 'total' ? (historySort.direction === 'asc' ? '↑' : '↓') : '↕'}
+                    </th>
                     <th style={{ textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {[...transactions].sort((a: any, b: any) => {
-                    const dir = historySort.direction === 'asc' ? 1 : -1;
-                    if (a[historySort.key] < b[historySort.key]) return -1 * dir;
-                    if (a[historySort.key] > b[historySort.key]) return 1 * dir;
-                    return 0;
-                  }).map(tx => (
-                    <tr key={tx.id}>
-                      <td style={{ whiteSpace: 'nowrap' }}>{tx.date}</td>
-                      <td 
-                        style={{ fontWeight: 700, cursor: tx.ticker ? 'pointer' : 'default', color: tx.ticker ? 'var(--color-blue)' : 'inherit' }}
-                        onClick={() => tx.ticker && setSelectedStockTicker(tx.ticker)}
-                        title={tx.ticker ? "Click to view stock history & details" : ""}
-                      >
-                        {tx.ticker || '-'}
-                      </td>
-                      <td>
-                        <span className={`badge ${
-                          tx.type === 'Buy' ? 'badge-blue' : 
-                          tx.type === 'Sell' ? 'badge-red' : 
-                          tx.type === 'Deposit' ? 'badge-green' : 
-                          tx.type === 'Withdraw' ? 'badge-yellow' : 'badge-purple'
-                        }`}>{tx.type}</span>
-                      </td>
-                      <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{tx.broker || 'Thunder'}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{tx.quantity || '-'}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{tx.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                      <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{tx.fees || 0}</td>
-                      <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>
-                        {(tx.quantity ? (tx.quantity * tx.price) : tx.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
-                          <button className="icon-btn" onClick={() => setEditingTransaction(tx)} title="Edit">
-                            <Pencil size={14} className="text-blue" />
-                          </button>
-                          <button className="icon-btn" onClick={() => deleteTransaction(tx.id)} title="Delete">
-                            <Trash2 size={16} className="text-red" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {transactions.length === 0 && (
+                  {sortedTransactions.map(tx => {
+                    const totalVal = (tx.quantity ? (tx.quantity * tx.price) : tx.price) + (tx.fees || 0);
+                    return (
+                      <tr key={tx.id}>
+                        <td style={{ whiteSpace: 'nowrap' }}>{tx.date}</td>
+                        <td 
+                          style={{ fontWeight: 700, cursor: (tx.ticker && ['Buy','Sell','Dividend'].includes(tx.type)) ? 'pointer' : 'default', color: (tx.ticker && ['Buy','Sell','Dividend'].includes(tx.type)) ? 'var(--color-blue)' : 'var(--text-secondary)' }}
+                          onClick={() => tx.ticker && ['Buy','Sell','Dividend'].includes(tx.type) && setSelectedStockTicker(tx.ticker)}
+                          title={(tx.ticker && ['Buy','Sell','Dividend'].includes(tx.type)) ? "Click to view stock history & details" : ""}
+                        >
+                          {['Buy', 'Sell', 'Dividend'].includes(tx.type) ? (tx.ticker || '—') : '—'}
+                        </td>
+                        <td>
+                          <span className={`badge ${
+                            tx.type === 'Buy' ? 'badge-blue' : 
+                            tx.type === 'Sell' ? 'badge-red' : 
+                            tx.type === 'Deposit' ? 'badge-green' : 
+                            tx.type === 'Withdraw' ? 'badge-yellow' : 'badge-purple'
+                          }`}>{tx.type}</span>
+                        </td>
+                        <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{tx.broker || 'Thunder'}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{tx.quantity ? tx.quantity.toLocaleString() : '-'}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{tx.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="mono" style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
+                          {(tx.fees || 0) > 0
+                            ? (tx.fees || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                            : (tx.type === 'Buy' || tx.type === 'Sell')
+                              ? <span title="No separate fee recorded — brokerage fees are embedded in the unit price for this trade." style={{ fontStyle: 'italic', opacity: 0.7 }}>incl.</span>
+                              : '—'}
+                        </td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>
+                          {totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                            <button className="icon-btn" onClick={() => setEditingTransaction(tx)} title="Edit">
+                              <Pencil size={14} className="text-blue" />
+                            </button>
+                            <button className="icon-btn" onClick={() => deleteTransaction(tx.id)} title="Delete">
+                              <Trash2 size={16} className="text-red" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {sortedTransactions.length === 0 && (
                     <tr>
-                      <td colSpan={7} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>No transactions found.</td>
+                      <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+                        {hasHistoryFilters ? 'No transactions match the selected filters.' : 'No transactions found.'}
+                      </td>
                     </tr>
                   )}
                 </tbody>
               </table>
+            </div>
+            <div style={{ padding: '0.75rem 1.5rem', fontSize: '0.72rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)' }}>
+              <strong>Fees:</strong> <em>incl.</em> means no separate fee was recorded because brokerage fees are embedded in the unit price for that trade. A plain <em>0.00</em> would be misleading, so embedded-fee trades are marked explicitly.
             </div>
           </div>
         )}
@@ -1789,60 +2636,6 @@ function App() {
         />
       )}
 
-      {/* ATH Audio Alert Floating Banner */}
-      {athAlertPlaying && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: '2rem',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'linear-gradient(135deg, rgba(250,204,21,0.15), rgba(251,146,60,0.15))',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(250,204,21,0.4)',
-            borderRadius: '16px',
-            padding: '14px 28px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px',
-            zIndex: 9999,
-            boxShadow: '0 8px 32px rgba(250,204,21,0.2), 0 0 60px rgba(250,204,21,0.1)',
-            animation: 'athFloatPulse 2s ease-in-out infinite'
-          }}
-        >
-          <Volume2 size={22} style={{ color: '#facc15', animation: 'spin 2s linear infinite' }} />
-          <div>
-            <div style={{ color: '#facc15', fontWeight: 700, fontSize: '0.95rem', letterSpacing: '0.5px' }}>
-              🔥 ALL-TIME HIGH P&L
-            </div>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '2px' }}>
-              {athTickers.join(', ')} {athTickers.length === 1 ? 'has' : 'have'} exceeded historical peak
-            </div>
-          </div>
-          <button
-            onClick={stopATHAlert}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '8px 20px',
-              borderRadius: '10px',
-              border: '1px solid rgba(248,81,73,0.5)',
-              background: 'rgba(248,81,73,0.15)',
-              color: '#f85149',
-              fontWeight: 700,
-              fontSize: '0.85rem',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(248,81,73,0.3)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(248,81,73,0.15)'; }}
-          >
-            <VolumeX size={16} /> Stop Alert
-          </button>
-        </div>
-      )}
-
     </div>
   );
 }
@@ -1862,11 +2655,14 @@ function TransactionForm({ onClose, onSave, initialData }: { onClose: () => void
   });
 
   const handleSave = () => {
+    const isStockType = ['Buy', 'Sell', 'Dividend', 'StockDividend'].includes(formData.type);
+    const hasQuantity = ['Buy', 'Sell', 'StockDividend'].includes(formData.type);
     onSave({
       ...formData,
-      quantity: formData.quantity === '' ? 0 : Number(formData.quantity),
-      price: formData.price === '' ? 0 : Number(formData.price),
-      fees: formData.fees === '' ? 0 : Number(formData.fees),
+      ticker: isStockType ? formData.ticker : undefined,
+      quantity: hasQuantity ? (formData.quantity === '' ? 0 : Number(formData.quantity)) : (formData.quantity === '' ? 0 : Number(formData.quantity)),
+      price: formData.type === 'StockDividend' ? 0 : (formData.price === '' ? 0 : Number(formData.price)),
+      fees: formData.type === 'StockDividend' ? 0 : (formData.fees === '' ? 0 : Number(formData.fees)),
     });
   };
 
@@ -1890,6 +2686,7 @@ function TransactionForm({ onClose, onSave, initialData }: { onClose: () => void
                 <option value="Deposit">Deposit</option>
                 <option value="Withdraw">Withdraw</option>
                 <option value="Dividend">Dividend</option>
+                <option value="StockDividend">Stock Dividend</option>
               </select>
             </div>
             <div>
@@ -1897,11 +2694,11 @@ function TransactionForm({ onClose, onSave, initialData }: { onClose: () => void
               <input type="date" className="input-field" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
             </div>
           </div>
-          {['Buy', 'Sell', 'Dividend'].includes(formData.type) && (
-            <div className={['Buy', 'Sell'].includes(formData.type) ? 'grid-2' : ''} style={{ gap: '1rem' }}>
+          {['Buy', 'Sell', 'Dividend', 'StockDividend'].includes(formData.type) && (
+            <div className={['Buy', 'Sell', 'StockDividend'].includes(formData.type) ? 'grid-2' : ''} style={{ gap: '1rem' }}>
               <div>
                 <label className="text-muted" style={{ fontSize: '0.8rem' }}>
-                  {formData.type === 'Dividend' ? 'Source Symbol (Stock)' : 'Ticker'}
+                  {formData.type === 'Dividend' ? 'Source Symbol (Stock)' : formData.type === 'StockDividend' ? 'Stock Received' : 'Ticker'}
                 </label>
                 <select
                   className="input-field"
@@ -1919,9 +2716,9 @@ function TransactionForm({ onClose, onSave, initialData }: { onClose: () => void
                   ))}
                 </select>
               </div>
-              {['Buy', 'Sell'].includes(formData.type) && (
+              {['Buy', 'Sell', 'StockDividend'].includes(formData.type) && (
                 <div>
-                  <label className="text-muted" style={{ fontSize: '0.8rem' }}>Quantity</label>
+                  <label className="text-muted" style={{ fontSize: '0.8rem' }}>{formData.type === 'StockDividend' ? 'Shares Received' : 'Quantity'}</label>
                   <input 
                     type="number" 
                     step="any"
@@ -1935,6 +2732,7 @@ function TransactionForm({ onClose, onSave, initialData }: { onClose: () => void
               )}
             </div>
           )}
+          {formData.type !== 'StockDividend' && (
           <div>
             <label className="text-muted" style={{ fontSize: '0.8rem' }}>{['Deposit', 'Withdraw', 'Dividend'].includes(formData.type) ? 'Amount (EGP)' : 'Price per Share (EGP)'}</label>
             <input 
@@ -1947,6 +2745,7 @@ function TransactionForm({ onClose, onSave, initialData }: { onClose: () => void
               onChange={e => setFormData({...formData, price: e.target.value})} 
             />
           </div>
+          )}
           <div className="grid-2" style={{ gap: '1rem' }}>
             <div className="form-group">
               <label className="text-muted" style={{ fontSize: '0.8rem' }}>Broker Name</label>
@@ -2018,8 +2817,9 @@ function HistoryModal({ ticker, transactions, onClose, onDelete }: { ticker: str
                       tx.type === 'Buy' ? 'badge-blue' : 
                       tx.type === 'Sell' ? 'badge-red' : 
                       tx.type === 'Deposit' ? 'badge-green' : 
-                      tx.type === 'Withdraw' ? 'badge-yellow' : 'badge-purple'
-                    }`}>{tx.type}</span>
+                      tx.type === 'Withdraw' ? 'badge-yellow' : 
+                      tx.type === 'StockDividend' ? 'badge-green' : 'badge-purple'
+                    }`}>{tx.type === 'StockDividend' ? 'Stock Div' : tx.type}</span>
                   </td>
                   <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{tx.broker || 'Thunder'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{tx.quantity || '-'}</td>
@@ -2523,7 +3323,7 @@ function PriceHistoryModal({ stock, onClose }: { stock: Holding; onClose: () => 
   );
 }
 
-function UnrealizedPnLHistory({ transactions }: { transactions: Transaction[] }) {
+function TotalReturnHistory({ transactions }: { transactions: Transaction[] }) {
   const [selectedTicker, setSelectedTicker] = useState('ALL');
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -2546,49 +3346,63 @@ function UnrealizedPnLHistory({ transactions }: { transactions: Transaction[] })
         }));
 
         const allDates = [...new Set(Object.values(histories).flat().map(p => p.date.split('T')[0]))].sort();
-        const firstTxDate = transactions.sort((a,b) => a.date.localeCompare(b.date))[0].date;
+        const sortedTxs = [...transactions].sort((a,b) => a.date.localeCompare(b.date));
+        const firstTxDate = sortedTxs[0]?.date || new Date().toISOString().split('T')[0];
         
         const points = allDates.filter(d => d >= firstTxDate).map(date => {
-          let totalPnL = 0;
+          let unrealizedPnL = 0;
+          let realizedPnL = 0;
+          let dividends = 0;
           
           targetTickers.forEach(ticker => {
             const history = histories[ticker];
             if (!history) return;
 
-            const pricePoint = history.find(p => p.date.split('T')[0] === date) || [...history].reverse().find(p => p.date.split('T')[0] < date);
-            if (!pricePoint) return;
+            const pricePoint = history.find(p => p.date.split('T')[0] === date) || [...history].reverse().find(p => p.date.split('T')[0] <= date);
 
-            // Calculate holdings up to this date
             let shares = 0;
             let totalCost = 0;
-            transactions.filter(t => t.ticker === ticker && t.date <= date).sort((a,b) => a.date.localeCompare(b.date)).forEach(tx => {
-              if (tx.type === 'Buy') {
-                shares += tx.quantity!;
-                totalCost += (tx.quantity! * tx.price) + (tx.fees || 0);
-              } else if (tx.type === 'Sell') {
-                const avgCost = shares > 0 ? totalCost / shares : 0;
-                const costBasisSold = avgCost * tx.quantity!;
-                shares -= tx.quantity!;
-                totalCost -= costBasisSold;
-              }
-            });
+            
+            transactions
+              .filter(t => t.ticker === ticker && t.date <= date)
+              .sort((a,b) => a.date.localeCompare(b.date))
+              .forEach(tx => {
+                if (tx.type === 'Buy') {
+                  shares += tx.quantity!;
+                  totalCost += (tx.quantity! * tx.price) + (tx.fees || 0);
+                } else if (tx.type === 'Sell') {
+                  const avgCost = shares > 0 ? totalCost / shares : 0;
+                  const costBasisSold = avgCost * tx.quantity!;
+                  const netProceeds = (tx.quantity! * tx.price) - (tx.fees || 0);
+                  realizedPnL += (netProceeds - costBasisSold);
+                  shares -= tx.quantity!;
+                  totalCost -= costBasisSold;
+                } else if (tx.type === 'Dividend') {
+                  dividends += (tx.price || 0) - (tx.fees || 0);
+                }
+              });
 
-            if (shares > 0) {
+            if (shares > 0 && pricePoint && pricePoint.close) {
               const currentValue = shares * pricePoint.close;
-              totalPnL += (currentValue - totalCost);
+              unrealizedPnL += (currentValue - totalCost);
             }
           });
 
+          const totalReturn = unrealizedPnL + realizedPnL + dividends;
+
           return {
             date,
-            displayDate: new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }),
-            pnl: totalPnL
+            displayDate: new Date(date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }),
+            totalReturn: Math.round(totalReturn),
+            unrealizedPnL: Math.round(unrealizedPnL),
+            realizedPnL: Math.round(realizedPnL),
+            dividends: Math.round(dividends)
           };
         });
 
         setData(points);
       } catch (e) {
-        console.error('PnL History Error:', e);
+        console.error('Total Return History Error:', e);
       } finally {
         setLoading(false);
       }
@@ -2599,16 +3413,16 @@ function UnrealizedPnLHistory({ transactions }: { transactions: Transaction[] })
 
   return (
     <div className="card" style={{ marginTop: '2rem', padding: '2rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <TrendingUp size={18} className="text-green" /> Unrealized P&L Trend
+            <TrendingUp size={18} className="text-green" /> Total Return Trend
           </h3>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            Historical profit/loss evolution since first purchase
+            Historical total return evolution (Unrealized P&L + Realized Profits + Dividends)
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
           <select 
             value={selectedTicker} 
             onChange={e => setSelectedTicker(e.target.value)}
@@ -2635,11 +3449,11 @@ function UnrealizedPnLHistory({ transactions }: { transactions: Transaction[] })
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data}>
               <defs>
-                <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="totalReturnGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="var(--color-green)" stopOpacity={0.3}/>
                   <stop offset="95%" stopColor="var(--color-green)" stopOpacity={0}/>
                 </linearGradient>
-                <linearGradient id="pnlGradientRed" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="totalReturnGradientRed" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="var(--color-red)" stopOpacity={0.3}/>
                   <stop offset="95%" stopColor="var(--color-red)" stopOpacity={0}/>
                 </linearGradient>
@@ -2660,18 +3474,18 @@ function UnrealizedPnLHistory({ transactions }: { transactions: Transaction[] })
               />
               <Tooltip 
                 contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px' }}
-                formatter={(val: any) => [`EGP ${Number(val).toLocaleString()}`, 'Unrealized P&L']}
+                formatter={(val: any) => [`EGP ${Number(val).toLocaleString()}`, 'Total Return']}
               />
               <ReferenceLine y={0} stroke="var(--text-muted)" strokeDasharray="3 3" />
               <Area 
                 type="monotone" 
-                dataKey="pnl" 
-                stroke={data.length > 0 && data[data.length - 1]?.pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)'} 
+                dataKey="totalReturn" 
+                stroke={data.length > 0 && data[data.length - 1]?.totalReturn >= 0 ? 'var(--color-green)' : 'var(--color-red)'} 
                 strokeWidth={3}
                 dot={data.length < 10 ? { r: 4, strokeWidth: 2, fill: 'var(--bg-card)' } : false}
                 activeDot={{ r: 6, strokeWidth: 0 }}
                 fillOpacity={1} 
-                fill={`url(#${data.length > 0 && data[data.length - 1]?.pnl >= 0 ? 'pnlGradient' : 'pnlGradientRed'})`}
+                fill={`url(#${data.length > 0 && data[data.length - 1]?.totalReturn >= 0 ? 'totalReturnGradient' : 'totalReturnGradientRed'})`}
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -3606,13 +4420,27 @@ function PerformanceDashboard({ transactions, holdings, analyticsData, walletBal
         if (!indexHistory || indexHistory.length === 0) throw new Error("Index data unavailable");
 
         const firstTxDate = transactions.length > 0 ? [...transactions].sort((a,b) => a.date.localeCompare(b.date))[0].date : null;
+        const firstIndexPoint = firstTxDate ? (indexHistory.find(p => p.date.split('T')[0] >= firstTxDate) || indexHistory[0]) : indexHistory[0];
+        const startIndexPrice = firstIndexPoint ? firstIndexPoint.close : 1;
 
         const perfPoints = indexHistory.map(indexPoint => {
           const date = indexPoint.date.split('T')[0];
           const hasStarted = firstTxDate && date >= firstTxDate;
 
-          let portfolioValue = 0;
+          let totalCostAtDate = 0;
+          let totalMarketValAtDate = 0;
+          let totalRealizedAndDivsAtDate = 0;
+          let totalInvestedCapAtDate = 0;
+
           if (hasStarted) {
+            // Compute cumulative invested capital deployed up to date
+            transactions
+              .filter(t => t.date <= date && (t.type === 'Buy' || t.type === 'Deposit'))
+              .forEach(t => {
+                if (t.type === 'Buy') totalInvestedCapAtDate += (t.quantity! * t.price!) + (t.fees || 0);
+                else if (t.type === 'Deposit') totalInvestedCapAtDate += Math.abs(t.price || 0);
+              });
+
             uniqueTickers.forEach(ticker => {
               const hist = histories[ticker!];
               if (!hist) return;
@@ -3620,50 +4448,66 @@ function PerformanceDashboard({ transactions, holdings, analyticsData, walletBal
               if (!point) return;
 
               let shares = 0;
-              transactions.filter(t => t.ticker === ticker && t.date <= date).forEach(tx => {
-                if (tx.type === 'Buy') shares += tx.quantity!;
-                else if (tx.type === 'Sell') shares -= tx.quantity!;
-              });
-              portfolioValue += (shares * point.close);
+              let cost = 0;
+
+              transactions
+                .filter(t => t.ticker === ticker && t.date <= date)
+                .sort((a, b) => a.date.localeCompare(b.date))
+                .forEach(tx => {
+                  if (tx.type === 'Buy') {
+                    shares += tx.quantity!;
+                    cost += (tx.quantity! * tx.price) + (tx.fees || 0);
+                  } else if (tx.type === 'Sell') {
+                    const avg = shares > 0 ? cost / shares : 0;
+                    const costSold = avg * tx.quantity!;
+                    const net = (tx.quantity! * tx.price) - (tx.fees || 0);
+                    totalRealizedAndDivsAtDate += (net - costSold);
+                    shares -= tx.quantity!;
+                    cost -= costSold;
+                  } else if (tx.type === 'Dividend') {
+                    totalRealizedAndDivsAtDate += (tx.price || 0) - (tx.fees || 0);
+                  }
+                });
+
+              if (shares > 0) {
+                totalCostAtDate += cost;
+                totalMarketValAtDate += (shares * point.close);
+              }
             });
           }
+
+          const baseCapAtDate = totalInvestedCapAtDate > 0
+            ? totalInvestedCapAtDate
+            : (totalCostAtDate > 0 ? totalCostAtDate : 1);
+
+          const returnPct = baseCapAtDate > 0 
+            ? ((totalMarketValAtDate - totalCostAtDate + totalRealizedAndDivsAtDate) / baseCapAtDate) * 100 
+            : 0;
+
+          const portfolioNormalized = hasStarted ? (100 + returnPct) : 100;
+          const marketNormalized = (indexPoint.close / startIndexPrice) * 100;
 
           const comparisons: any = {};
           allCompareTickers.forEach(t => {
             const hist = histories[t];
+            const startP = firstTxDate ? (hist?.find(x => x.date.split('T')[0] >= firstTxDate) || hist?.[0]) : hist?.[0];
+            const startVal = startP?.close || 1;
             const p = hist?.find(x => x.date.split('T')[0] === date) || [...(hist || [])].reverse().find(x => x.date.split('T')[0] < date);
-            comparisons[t] = p?.close || 0;
+            comparisons[t] = ((p?.close || 1) / startVal) * 100;
           });
 
           return { 
             date, 
-            displayDate: new Date(date).toLocaleDateString(undefined, { month: 'short', year: '2-digit' }), 
-            totalValue: portfolioValue,
-            market: indexPoint.close,
+            displayDate: new Date(date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', year: '2-digit' }), 
+            totalValue: totalMarketValAtDate,
+            portfolio: portfolioNormalized,
+            market: marketNormalized,
             hasStarted,
-            comparisons
+            ...comparisons
           };
         });
 
-        const startPoint = perfPoints.find(p => p.hasStarted && p.totalValue > 0) || perfPoints[0];
-        if (startPoint) {
-          const startPortVal = startPoint.totalValue || 1;
-          const startMarketVal = startPoint.market || 1;
-
-          const normalized = perfPoints.map(p => {
-            const point: any = { 
-              ...p,
-              portfolio: (p.totalValue / startPortVal) * 100,
-              market: (p.market / startMarketVal) * 100
-            };
-            allCompareTickers.forEach(ticker => {
-              const startVal = startPoint.comparisons?.[ticker] || 1;
-              point[ticker] = ((p.comparisons?.[ticker] || 1) / startVal) * 100;
-            });
-            return point;
-          });
-          setData(normalized);
-        }
+        setData(perfPoints);
       } catch (e: any) { console.error(e.message); }
       finally { setLoading(false); }
     };

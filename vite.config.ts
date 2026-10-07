@@ -477,6 +477,43 @@ Return ONLY the JSON. No markdown outside the JSON.`;
               return;
             }
 
+            // TradingView-only current daily technical snapshot for Swing Advice.
+            if (req.method === 'POST' && (url === '/swing-snapshot' || url === '/api/swing-snapshot')) {
+              let body = '';
+              req.on('data', chunk => body += chunk.toString());
+              req.on('end', async () => {
+                try {
+                  const parsed = JSON.parse(body);
+                  const tickers = [...new Set((Array.isArray(parsed.tickers) ? parsed.tickers : [])
+                    .map((ticker: unknown) => String(ticker).trim().toUpperCase().replace(/\.CA$/, ''))
+                    .filter((ticker: string) => /^[A-Z0-9]{2,12}$/.test(ticker)))].slice(0, 100) as string[];
+                  if (!tickers.length) return res.writeHead(400).end(JSON.stringify({ error: 'No valid EGX tickers' }));
+                  const columns = ['close', 'close[1]', 'high[1]', 'EMA20', 'EMA50', 'High.1M', 'volume', 'relative_volume_10d_calc', 'time', 'update_mode'];
+                  const response = await fetch('https://scanner.tradingview.com/egypt/scan', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbols: { tickers: tickers.map(ticker => `EGX:${ticker}`), query: { types: [] } }, columns })
+                  });
+                  if (!response.ok) throw new Error(`TradingView returned ${response.status}`);
+                  const scanned: any = await response.json();
+                  const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null;
+                  const data: Record<string, unknown> = {};
+                  for (const row of scanned.data || []) {
+                    const ticker = String(row.s || '').replace('EGX:', '');
+                    if (!tickers.includes(ticker)) continue;
+                    const values = row.d || [];
+                    data[ticker] = { ticker, close: number(values[0]), previousClose: number(values[1]), previousHigh: number(values[2]),
+                      ema20: number(values[3]), ema50: number(values[4]), monthHigh: number(values[5]), volume: number(values[6]),
+                      relativeVolume: number(values[7]), time: number(values[8]), updateMode: typeof values[9] === 'string' ? values[9] : null };
+                  }
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ source: 'TradingView Egypt scanner', data }));
+                } catch (error: any) {
+                  res.writeHead(502, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: error.message || 'TradingView unavailable' }));
+                }
+              });
+              return;
+            }
+
             // 3. HISTORY ENDPOINT
             if (req.method === 'GET' && url.includes('history')) {
               const queryUrl = new URL(url, `http://${req.headers.host}`);
@@ -531,6 +568,7 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                   else if (range === '6m') period1.setMonth(now.getMonth() - 6);
                   else if (range === 'ytd') period1 = new Date(now.getFullYear(), 0, 1);
                   else if (range === '1y') period1.setFullYear(now.getFullYear() - 1);
+                  else if (range === '3y') period1.setFullYear(now.getFullYear() - 3);
                   else if (range === '5y') period1.setFullYear(now.getFullYear() - 5);
                   else period1 = new Date(1970, 0, 1);
 
@@ -542,7 +580,7 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                         .filter((q: any) => q && (q.close != null || q.adjclose != null))
                         .map((q: any) => ({ date: q.date, open: q.open, high: q.high, low: q.low, close: q.close || q.adjclose, volume: q.volume || 0 }));
                     } else {
-                      const histData = await yf.historical(fullSymbol, { period1, period2: now, interval: (range === '5y' || range === 'max') ? '1mo' : '1d' });
+                      const histData = await yf.historical(fullSymbol, { period1, period2: now, interval: ((range === '5y' || range === 'max') && !queryUrl.searchParams.has('raw')) ? '1mo' : '1d' });
                       quotes = histData.map((q: any) => ({
                         date: q.date,
                         open: q.open,
@@ -600,8 +638,55 @@ Return ONLY the JSON. No markdown outside the JSON.`;
                     }
                   }
                 }
+                
+                // Clean quotes: filter out any null/undefined close prices
+                quotes = quotes.filter((q: any) => q && q.close != null && !isNaN(q.close));
+
+                // Inject/Override yesterday's completed bar with real previous close from TradingView scanner to fix Yahoo delay/stale weekend candles
+                if (quotes.length > 0 && fullSymbol.endsWith('.CA') && !queryUrl.searchParams.has('raw')) {
+                  const yesterdayObj = new Date();
+                  yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+                  const yesterdayStr = yesterdayObj.toISOString().split('T')[0];
+
+                  try {
+                    const cleanSym = symbol.replace('.CA', '').replace('EGX:', '').toUpperCase();
+                    const tvRes = await fetch('https://scanner.tradingview.com/egypt/scan', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        symbols: { tickers: [`EGX:${cleanSym}`], query: { types: [] } },
+                        columns: ['close', 'change', 'change_abs']
+                      })
+                    });
+                    const tvData: any = await tvRes.json();
+                    if (tvData.data && tvData.data.length > 0) {
+                      const tvClose = tvData.data[0].d[0];
+                      const tvChangeAbs = tvData.data[0].d[2] || 0;
+                      const realPrevClose = tvClose - tvChangeAbs;
+                      if (realPrevClose > 0) {
+                        const yIndex = quotes.findIndex((q: any) => q.date && (typeof q.date === 'string' ? q.date : new Date(q.date).toISOString()).split('T')[0] === yesterdayStr);
+                        if (yIndex >= 0) {
+                          quotes[yIndex].close = realPrevClose;
+                          quotes[yIndex].high = Math.max(quotes[yIndex].high || 0, realPrevClose);
+                        } else {
+                          quotes.push({
+                            date: yesterdayStr + 'T00:00:00.000Z',
+                            open: realPrevClose,
+                            high: realPrevClose,
+                            low: realPrevClose,
+                            close: realPrevClose,
+                            volume: 0
+                          });
+                        }
+                      }
+                    }
+                  } catch (qErr) {
+                    console.warn(`[Proxy] TradingView previous close fetch skipped for ${fullSymbol}`);
+                  }
+                }
+
                 res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify(quotes.filter((q: any) => q.close != null)));
+                res.end(JSON.stringify(quotes));
                 return;
               } catch (e: any) {
                 res.writeHead(500).end(JSON.stringify({ error: e.message }));
@@ -786,3 +871,4 @@ Return ONLY the JSON. No markdown outside the JSON.`;
     ],
   };
 });
+
